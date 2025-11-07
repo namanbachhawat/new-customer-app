@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+import api from '../services/api';
 
 const AuthScreen = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState('login');
@@ -104,8 +105,17 @@ const AuthScreen = ({ navigation }) => {
     navigation.navigate('Home');
   };
 
-  const handleSocialLogin = () => {
-    Alert.alert('Social Login', 'This feature is coming soon!');
+  const handleSocialLogin = async (provider) => {
+    try {
+      const response = await api.socialLogin(provider);
+      if (response.success) {
+        navigation.navigate('Home');
+      } else {
+        Alert.alert('Error', 'Social login failed. Please try again.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to login with social account.');
+    }
   };
 
   return (
@@ -188,15 +198,17 @@ const AuthScreen = ({ navigation }) => {
               <View style={styles.socialContainer}>
                 <TouchableOpacity
                   style={styles.socialButton}
-                  onPress={handleSocialLogin}
+                  onPress={() => handleSocialLogin('google')}
                 >
-                  <Text style={styles.socialButtonText}>G</Text>
+                  <Text style={styles.googleIcon}>G</Text>
+                  <Text style={styles.socialButtonText}>Google</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.socialButton}
-                  onPress={handleSocialLogin}
+                  onPress={() => handleSocialLogin('facebook')}
                 >
-                  <Text style={styles.socialButtonText}>f</Text>
+                  <Text style={styles.facebookIcon}>f</Text>
+                  <Text style={styles.socialButtonText}>Facebook</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -381,15 +393,29 @@ const styles = StyleSheet.create({
   },
   socialButton: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 12,
     paddingVertical: 12,
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 8,
   },
-  socialButtonText: {
+  googleIcon: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#4285F4',
+  },
+  facebookIcon: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1877F2',
+  },
+  socialButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#1e293b',
   },
   termsContainer: {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,64 +13,40 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
+import api from '../services/api';
 
 const HomeScreen = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedAddress, setSelectedAddress] = useState(0);
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Order Delivered!', message: 'Your order from Green Tea House has been delivered.', time: '2 min ago', read: false },
-    { id: 2, title: 'New Offer', message: 'Get 30% off on your next order.', time: '1 hour ago', read: false },
-  ]);
+  const [notifications, setNotifications] = useState([]);
+  const [addresses, setAddresses] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const addresses = [
-    { id: 0, name: 'Home', address: '123 Main Street, Mumbai', icon: '🏠' },
-    { id: 1, name: 'Work', address: '456 Business Plaza, BKC, Mumbai', icon: '🏢' },
-    { id: 2, name: "Friend's Place", address: '789 Park Avenue, Andheri, Mumbai', icon: '👥' },
-  ];
+  useEffect(() => {
+    loadHomeData();
+  }, []);
 
-  const categories = [
-    { id: 1, name: 'Tea', image: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47', items: 45 },
-    { id: 2, name: 'Coffee', image: 'https://images.unsplash.com/photo-1644433233384-a28e2a225bfc', items: 32 },
-    { id: 3, name: 'Snacks', image: 'https://images.unsplash.com/photo-1616813769023-d0557572ddbe', items: 67 },
-    { id: 4, name: 'Combos', image: 'https://images.unsplash.com/photo-1586981114766-708f09a71e20', items: 15 },
-    { id: 5, name: 'Desserts', image: 'https://images.unsplash.com/photo-1617013451942-441bbba35a5e', items: 28 },
-  ];
+  const loadHomeData = async () => {
+    try {
+      const [categoriesResponse, vendorsResponse, addressesResponse, notificationsResponse] = await Promise.all([
+        api.getCategories(),
+        api.getVendors(),
+        api.getAddresses(),
+        api.getNotifications(),
+      ]);
 
-  const vendors = [
-    { 
-      id: 1, 
-      name: 'Green Tea House', 
-      rating: 4.5, 
-      time: '15-20 min', 
-      image: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47', 
-      offers: 'Free delivery',
-      price: '₹100 for two',
-      distance: '0.8 km',
-      promoted: true
-    },
-    { 
-      id: 2, 
-      name: 'Herbal Garden Cafe', 
-      rating: 4.8, 
-      time: '20-25 min', 
-      image: 'https://images.unsplash.com/photo-1644433233384-a28e2a225bfc', 
-      offers: '20% off',
-      price: '₹150 for two',
-      distance: '1.2 km',
-      promoted: false
-    },
-    { 
-      id: 3, 
-      name: 'Pure Veg Corner', 
-      rating: 4.3, 
-      time: '10-15 min', 
-      image: 'https://images.unsplash.com/photo-1680359939304-7e27ee183e7a', 
-      offers: 'Buy 1 Get 1',
-      price: '₹80 for two',
-      distance: '0.5 km',
-      promoted: false
-    },
-  ];
+      if (categoriesResponse.success) setCategories(categoriesResponse.categories);
+      if (vendorsResponse.success) setVendors(vendorsResponse.vendors);
+      if (addressesResponse.success) setAddresses(addressesResponse.addresses);
+      if (notificationsResponse.success) setNotifications(notificationsResponse.notifications);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to load home data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSearch = () => {
     navigation.navigate('Search', { searchQuery: searchText });
@@ -136,8 +112,8 @@ const HomeScreen = ({ navigation }) => {
           <View>
             <Text style={styles.deliverToText}>Deliver to</Text>
             <View style={styles.addressRow}>
-              <Text style={styles.addressName}>{addresses[selectedAddress].name}</Text>
-              <Text style={styles.addressText}>• {addresses[selectedAddress].address}</Text>
+              <Text style={styles.addressName}>{addresses[selectedAddress]?.name || 'Home'}</Text>
+              <Text style={styles.addressText}>• {addresses[selectedAddress]?.address || 'Loading address...'}</Text>
             </View>
           </View>
         </View>
