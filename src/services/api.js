@@ -590,16 +590,66 @@ class ApiService {
       reviews: [
         { id: 1, userName: 'Rahul S.', rating: 5, comment: 'Amazing food and service!', date: '2024-11-05' },
         { id: 2, userName: 'Priya M.', rating: 4, comment: 'Good quality vegetarian food.', date: '2024-11-03' },
-        { id: 3, userName: 'Amit K.', rating: 5, comment: 'Best tea in town!', date: '2024-11-01' },
       ]
     };
   }
 
   // Search
   async search(params) {
-    await this.delay(700);
+    console.log('[API] search() called with params:', params);
     const { query, category, location } = params;
-    let results = [];
+
+    // Try real API first
+    try {
+      console.log('[API] Attempting real API call to backend...');
+      const { searchService } = await import('./searchService');
+
+      const searchParams = {
+        q: query || '',
+        type: 'all',
+        latitude: location?.latitude || 19.0760,
+        longitude: location?.longitude || 72.8777,
+        radiusKm: 5,
+      };
+
+      console.log('[API] Calling searchService.search with:', searchParams);
+      const response = await searchService.search(searchParams);
+      console.log('[API] Real API response received:', JSON.stringify(response).slice(0, 300));
+
+      // Transform API response to match existing UI expectations
+      const transformedResults = {
+        vendors: response.results?.vendors?.map(v => ({
+          id: v.branchId,
+          name: v.displayName || v.branchName,
+          rating: v.rating,
+          time: v.deliveryTime,
+          distance: `${v.distance} ${v.distanceUnit || 'km'}`,
+          image: v.images?.primary || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47',
+          offers: v.tags?.join(', ') || '',
+          price: `₹${v.minOrderValue || 100} min order`,
+          menu: [],
+        })) || [],
+        items: response.results?.items?.map(i => ({
+          id: i.menuItemId,
+          name: i.name,
+          price: i.price,
+          vendorName: i.branchName,
+          vendorId: i.branchId,
+          category: i.category,
+          image: i.images?.primary || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47',
+        })) || [],
+        total: (response.results?.vendors?.length || 0) + (response.results?.items?.length || 0),
+      };
+
+      console.log('[API] Transformed results:', transformedResults.vendors.length, 'vendors,', transformedResults.items.length, 'items');
+      return { success: true, results: transformedResults };
+    } catch (error) {
+      console.log('[API] Real API failed, using mock data. Error:', error.message);
+    }
+
+    // Fallback to mock data
+    console.log('[API] Using mock search data');
+    await this.delay(700);
 
     // Search in vendors
     let vendorResults = this.mockData.vendors.filter(vendor =>
@@ -632,6 +682,7 @@ class ApiService {
       );
     }
 
+    console.log('[API] Mock search results:', vendorResults.length, 'vendors,', menuResults.length, 'items');
     return {
       success: true,
       results: {
