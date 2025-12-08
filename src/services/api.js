@@ -555,6 +555,201 @@ class ApiService {
     };
   }
 
+  async clearCart() {
+    await this.delay(300);
+    this.mockData.cart.items = [];
+    this.mockData.cart.globalCoupon = null;
+    this.mockData.cart.deliveryAddress = null;
+    return { success: true };
+  }
+
+  async applyCoupon(restaurantId, couponCode) {
+    await this.delay(400);
+
+    // Mock coupon validation
+    const coupons = {
+      'GLOBAL10': { type: 'global', discount: 10, minOrder: 100 },
+      'REST20': { type: 'restaurant', discount: 20, minOrder: 200 },
+      'EXPIRED': { type: 'expired', discount: 0 }
+    };
+
+    const coupon = coupons[couponCode];
+    if (!coupon) {
+      return { success: false, error: 'Invalid coupon code' };
+    }
+
+    if (coupon.type === 'expired') {
+      return { success: false, error: 'Coupon has expired' };
+    }
+
+    if (restaurantId) {
+      // Restaurant-specific coupon
+      const restaurantGroup = this.mockData.cart.items.find(group => group.restaurantId === restaurantId);
+      if (!restaurantGroup) {
+        return { success: false, error: 'Restaurant not found in cart' };
+      }
+      restaurantGroup.coupons.push({ ...coupon, code: couponCode });
+    } else {
+      // Global coupon
+      this.mockData.cart.globalCoupon = { ...coupon, code: couponCode };
+    }
+
+    return { success: true, cart: this.mockData.cart };
+  }
+
+  async removeCoupon(restaurantId, couponCode) {
+    await this.delay(300);
+
+    if (restaurantId) {
+      const restaurantGroup = this.mockData.cart.items.find(group => group.restaurantId === restaurantId);
+      if (restaurantGroup) {
+        restaurantGroup.coupons = restaurantGroup.coupons.filter(coupon => coupon.code !== couponCode);
+      }
+    } else {
+      if (this.mockData.cart.globalCoupon?.code === couponCode) {
+        this.mockData.cart.globalCoupon = null;
+      }
+    }
+
+    return { success: true, cart: this.mockData.cart };
+  }
+
+  async setDeliveryAddress(addressId) {
+    await this.delay(300);
+
+    const address = this.mockData.user.addresses.find(addr => addr.id === addressId);
+    if (!address) {
+      return { success: false, error: 'Address not found' };
+    }
+
+    this.mockData.cart.deliveryAddress = address;
+
+    // Recalculate delivery fees for all restaurants (mock logic)
+    this.mockData.cart.items.forEach(group => {
+      group.deliveryFee = Math.floor(Math.random() * 40) + 20; // Random fee between 20-60
+      group.deliveryTime = Math.floor(Math.random() * 20) + 15; // Random time between 15-35 min
+    });
+
+    return { success: true, cart: this.mockData.cart };
+  }
+
+  // Orders
+  async getOrders() {
+    await this.delay(600);
+    return { success: true, orders: this.mockData.orders };
+  }
+
+  async placeOrder(orderData) {
+    await this.delay(1500);
+    const newOrder = {
+      id: Date.now(),
+      vendorName: orderData.vendorName,
+      status: 'Confirmed',
+      total: orderData.total,
+      date: new Date().toISOString().split('T')[0],
+      items: orderData.items,
+      orderId: `ORDER${Date.now()}`,
+    };
+    this.mockData.orders.unshift(newOrder);
+    // Clear cart after successful order
+    this.mockData.cart = {
+      items: [],
+      globalCoupon: null,
+      deliveryAddress: null
+    };
+    return { success: true, order: newOrder };
+  }
+
+  async getOrderDetails(orderId) {
+    await this.delay(500);
+    const order = this.mockData.orders.find(o => o.id === orderId);
+    if (order) {
+      return { success: true, order };
+    }
+    return { success: false, error: 'Order not found' };
+  }
+
+  // Payments
+  async processPayment(paymentData) {
+    await this.delay(2000);
+    // Simulate payment processing
+    const success = Math.random() > 0.1; // 90% success rate
+    if (success) {
+      return {
+        success: true,
+        transactionId: `TXN${Date.now()}`,
+        message: 'Payment processed successfully'
+      };
+    } else {
+      return {
+        success: false,
+        error: 'Payment failed. Please try again.'
+      };
+    }
+  }
+
+  // Addresses
+  async getAddresses() {
+    await this.delay(400);
+    return { success: true, addresses: this.mockData.user.addresses };
+  }
+
+  async addAddress(address) {
+    await this.delay(500);
+    const newAddress = {
+      id: Date.now(),
+      ...address,
+      isDefault: this.mockData.user.addresses.length === 0,
+    };
+    this.mockData.user.addresses.push(newAddress);
+    return { success: true, addresses: this.mockData.user.addresses };
+  }
+
+  async updateAddress(addressId, addressData) {
+    await this.delay(500);
+    const index = this.mockData.user.addresses.findIndex(addr => addr.id === addressId);
+    if (index !== -1) {
+      this.mockData.user.addresses[index] = { ...this.mockData.user.addresses[index], ...addressData };
+      return { success: true, addresses: this.mockData.user.addresses };
+    }
+    return { success: false, error: 'Address not found' };
+  }
+
+  async deleteAddress(addressId) {
+    await this.delay(400);
+    this.mockData.user.addresses = this.mockData.user.addresses.filter(addr => addr.id !== addressId);
+    return { success: true, addresses: this.mockData.user.addresses };
+  }
+
+  // Notifications
+  async getNotifications() {
+    await this.delay(400);
+    return {
+      success: true,
+      notifications: [
+        { id: 1, title: 'Order Delivered!', message: 'Your order from Green Tea House has been delivered.', time: '2 min ago', read: false },
+        { id: 2, title: 'New Offer', message: 'Get 30% off on your next order.', time: '1 hour ago', read: false },
+        { id: 3, title: 'Welcome to Nashtto', message: 'Thank you for joining us! Enjoy your first order.', time: '1 day ago', read: true },
+      ]
+    };
+  }
+
+  // Wallet
+  async getWallet() {
+    await this.delay(400);
+    return {
+      success: true,
+      wallet: {
+        balance: 250,
+        transactions: [
+          { id: 1, type: 'credit', amount: 100, description: 'Refund for order #12345', date: '2024-11-05' },
+          { id: 2, type: 'debit', amount: 50, description: 'Used for order #12346', date: '2024-11-04' },
+          { id: 3, type: 'credit', amount: 200, description: 'Welcome bonus', date: '2024-11-01' },
+        ]
+      }
+    };
+  }
+
   async markNotificationAsRead(notificationId) {
     await this.delay(300);
     return { success: true };
@@ -591,6 +786,205 @@ class ApiService {
         { id: 1, userName: 'Rahul S.', rating: 5, comment: 'Amazing food and service!', date: '2024-11-05' },
         { id: 2, userName: 'Priya M.', rating: 4, comment: 'Good quality vegetarian food.', date: '2024-11-03' },
       ]
+    };
+  }
+
+  // ============================================
+  // Search & Discovery APIs (Real Backend)
+  // ============================================
+
+  /**
+   * Get personalized discovery feed from real backend
+   * Returns nearby vendors, popular items, recommendations, and trending items
+   */
+  async getDiscoveryFeed(params = {}) {
+    console.log('[API] getDiscoveryFeed() called with params:', params);
+
+    try {
+      const { searchService } = await import('./searchService');
+
+      const feedParams = {
+        latitude: params.latitude || 19.0760,  // Default Mumbai
+        longitude: params.longitude || 72.8777,
+        radius: params.radius || 5,
+        userId: params.userId,
+        page: params.page || 0,
+        size: params.size || 20,
+      };
+
+      console.log('[API] Calling searchService.getDiscoveryFeed with:', feedParams);
+      const response = await searchService.getDiscoveryFeed(feedParams);
+      console.log('[API] Discovery Feed response received:', JSON.stringify(response).slice(0, 500));
+
+      // Transform API response to match existing UI expectations
+      const transformedFeed = {
+        nearbyVendors: response.nearbyVendors?.map(v => ({
+          id: v.branchId,
+          vendorId: v.vendorId,
+          name: v.displayName || v.branchName,
+          rating: v.rating || 4.0,
+          totalRatings: v.totalRatings || 0,
+          time: v.deliveryTime || '20-30 min',
+          distance: v.distance ? `${v.distance} ${v.distanceUnit || 'km'}` : '1.5 km',
+          image: v.images?.primary || v.images?.cover?.thumbnail || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47',
+          offers: v.tags?.join(', ') || '',
+          tags: v.tags || [],
+          price: v.minOrderValue ? `₹${v.minOrderValue} min order` : '₹100 for two',
+          deliveryFee: v.deliveryFee || 0,
+          isOpen: v.isOpen !== false,
+          openingTime: v.openingTime,
+          cuisine: v.cuisine || [],
+          rankingScore: v.rankingScore || 0,
+        })) || [],
+
+        popularItems: response.popularItems?.map(i => this._transformMenuItem(i)) || [],
+        recommendedItems: response.recommendedItems?.map(i => this._transformMenuItem(i)) || [],
+        topOrderedItems: response.topOrderedItems?.map(i => this._transformMenuItem(i)) || [],
+        searchSuggestions: response.searchSuggestions || [],
+
+        metadata: {
+          totalVendors: response.metadata?.totalVendors || 0,
+          cacheHit: response.metadata?.cacheHit || false,
+          rankingVersion: response.metadata?.rankingVersion || 'v2-blended',
+        }
+      };
+
+      console.log('[API] Transformed feed:', transformedFeed.nearbyVendors.length, 'vendors');
+      return { success: true, feed: transformedFeed };
+    } catch (error) {
+      console.log('[API] Discovery Feed API failed, using mock data. Error:', error.message);
+      return this._getMockDiscoveryFeed();
+    }
+  }
+
+  /**
+   * Get personalized recommendations from real backend
+   */
+  async getRecommendations(params = {}) {
+    console.log('[API] getRecommendations() called with params:', params);
+
+    try {
+      const { searchService } = await import('./searchService');
+
+      const recParams = {
+        userId: params.userId,
+        latitude: params.latitude || 19.0760,
+        longitude: params.longitude || 72.8777,
+        radiusKm: params.radiusKm || 5,
+      };
+
+      const response = await searchService.getRecommendations(recParams);
+      console.log('[API] Recommendations response received');
+
+      return {
+        success: true,
+        recommendations: {
+          vendors: response.recommendedVendors?.map(v => ({
+            id: v.branchId,
+            name: v.displayName || v.branchName,
+            rating: v.rating,
+            time: v.deliveryTime,
+            image: v.images?.primary || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47',
+          })) || [],
+          items: response.recommendedItems?.map(i => this._transformMenuItem(i)) || [],
+          frequentlyOrdered: response.frequentlyOrdered?.map(i => this._transformMenuItem(i)) || [],
+          timeBasedRecommendations: response.timeBasedRecommendations?.map(i => this._transformMenuItem(i)) || [],
+          context: response.recommendationContext || 'Based on your preferences',
+        }
+      };
+    } catch (error) {
+      console.log('[API] Recommendations API failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get vendor menu from real backend
+   */
+  async getVendorMenuFromAPI(branchId, params = {}) {
+    console.log('[API] getVendorMenuFromAPI() called for branchId:', branchId);
+
+    try {
+      const { searchService } = await import('./searchService');
+
+      const response = await searchService.getVendorMenu({
+        branchId,
+        userId: params.userId,
+        latitude: params.latitude,
+        longitude: params.longitude,
+      });
+
+      return {
+        success: true,
+        vendor: {
+          id: response.vendor?.branchId,
+          name: response.vendor?.displayName || response.vendor?.branchName,
+          rating: response.vendor?.rating,
+          deliveryTime: response.vendor?.deliveryTime,
+          image: response.vendor?.images?.primary,
+          isOpen: response.vendor?.isOpen,
+        },
+        categories: response.categories?.map(cat => ({
+          name: cat.categoryName,
+          displayOrder: cat.displayOrder,
+          items: cat.items?.map(i => this._transformMenuItem(i)) || [],
+        })) || [],
+        recommendations: response.recommendations?.map(i => this._transformMenuItem(i)) || [],
+        popularItems: response.popularItems?.map(i => this._transformMenuItem(i)) || [],
+      };
+    } catch (error) {
+      console.log('[API] Vendor Menu API failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Helper: Transform menu item from API response
+   */
+  _transformMenuItem(item) {
+    return {
+      id: item.menuItemId,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      category: item.category,
+      vendorName: item.branchName || item.vendorName,
+      vendorId: item.branchId,
+      image: item.images?.primary || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47',
+      rating: item.rating,
+      preparationTime: item.preparationTime,
+      isAvailable: item.isAvailable !== false,
+      dietaryInfo: item.dietaryInfo || [],
+      orderCount: item.orderCount || 0,
+      trendingScore: item.trendingScore || 0,
+    };
+  }
+
+  /**
+   * Helper: Get mock discovery feed as fallback
+   */
+  _getMockDiscoveryFeed() {
+    return {
+      success: true,
+      feed: {
+        nearbyVendors: this.mockData.vendors.map(v => ({
+          id: v.id,
+          name: v.name,
+          rating: v.rating,
+          time: v.time,
+          distance: v.distance,
+          image: v.image,
+          offers: v.offers,
+          price: v.price,
+          isOpen: true,
+          cuisine: [],
+        })),
+        popularItems: [],
+        recommendedItems: [],
+        topOrderedItems: [],
+        searchSuggestions: ['Masala Chai', 'Coffee', 'Samosa', 'Tea'],
+        metadata: { totalVendors: this.mockData.vendors.length, cacheHit: true },
+      }
     };
   }
 

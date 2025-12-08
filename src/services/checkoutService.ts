@@ -7,27 +7,8 @@ import {
     CheckoutRequest,
     CheckoutResponse,
     CommitCheckoutRequest,
-    Order,
+    OrderDetailsResponse,
 } from './types';
-
-// Order type from commit checkout
-interface Order {
-    orderId: string;
-    orderType: 'SINGLE' | 'MULTI_RESTAURANT';
-    customerId: string;
-    vendorId: number;
-    vendorBranchId: number;
-    checkoutSessionId: string;
-    state: string;
-    itemTotal: number;
-    deliveryCharges: number;
-    platformFee: number;
-    gst: number;
-    discount: number;
-    totalAmount: number;
-    paymentStatus: string;
-    createdAt: string;
-}
 
 class CheckoutService {
     /**
@@ -52,8 +33,8 @@ class CheckoutService {
      * Commit checkout - converts session to an order
      * This is step 2 of the two-step checkout process
      */
-    async commitCheckout(request: CommitCheckoutRequest): Promise<Order> {
-        return apiClient.post<Order>(ENDPOINTS.CHECKOUT_COMMIT, request);
+    async commitCheckout(request: CommitCheckoutRequest): Promise<OrderDetailsResponse> {
+        return apiClient.post<OrderDetailsResponse>(ENDPOINTS.CHECKOUT_COMMIT, request);
     }
 
     /**
@@ -73,3 +54,4 @@ class CheckoutService {
 
 export const checkoutService = new CheckoutService();
 export default checkoutService;
+

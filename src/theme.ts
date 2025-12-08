@@ -1,4 +1,34 @@
-import { StyleSheet } from 'react-native';
+
+// Gradient Presets
+export const Gradients = {
+  primary: ['#22c55e', '#16a34a'],
+  primaryLight: ['#4ade80', '#22c55e'],
+  primarySoft: ['#dcfce7', '#bbf7d0'],
+  sunset: ['#f97316', '#ea580c'],
+  purple: ['#8b5cf6', '#7c3aed'],
+  blue: ['#3b82f6', '#2563eb'],
+  teal: ['#14b8a6', '#0d9488'],
+  pink: ['#ec4899', '#db2777'],
+  gold: ['#fbbf24', '#f59e0b'],
+  dark: ['#334155', '#1e293b'],
+  success: ['#10b981', '#059669'],
+  authBackground: ['#f0fdf4', '#dcfce7', '#bbf7d0'],
+};
+
+// Animation timing constants
+export const Animation = {
+  fast: 150,
+  normal: 300,
+  slow: 500,
+  spring: {
+    damping: 15,
+    stiffness: 100,
+  },
+  springFast: {
+    damping: 20,
+    stiffness: 400,
+  },
+};
 
 export const Colors = {
   primary: '#22c55e',
@@ -23,7 +53,7 @@ export const Colors = {
   white: '#ffffff',
   black: '#000000',
   transparent: 'transparent',
-  
+
   // App specific colors
   green: {
     50: '#f0fdf4',
@@ -127,6 +157,13 @@ export const Shadows = {
     shadowRadius: 8,
     elevation: 8,
   },
+  glow: {
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
 };
 
 export const Layout = {
@@ -138,6 +175,8 @@ export const Layout = {
 
 export const AppTheme = {
   Colors,
+  Gradients,
+  Animation,
   Typography,
   Spacing,
   BorderRadius,

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -12,11 +13,19 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated, {
+  FadeInDown
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScaleOnPress } from '../components/AnimatedCard';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
+import { GradientCard } from '../components/GradientCard';
 import api from '../services/api';
+import searchService from '../services/searchService';
 import AddressSelectionModal from './AddressSelectionModal';
+
+const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
 const HomeScreen = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
@@ -25,6 +34,7 @@ const HomeScreen = ({ navigation }) => {
   const [addresses, setAddresses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [orderAgainItems, setOrderAgainItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState('rating');
@@ -33,6 +43,7 @@ const HomeScreen = ({ navigation }) => {
     loadHomeData();
     loadCart();
     loadWallet();
+    loadOrderAgainItems();
   }, []);
 
   // Add focus listener to refresh cart when returning to home
@@ -46,18 +57,59 @@ const HomeScreen = ({ navigation }) => {
 
   const loadHomeData = async () => {
     try {
-      const [categoriesResponse, vendorsResponse, addressesResponse, notificationsResponse] = await Promise.all([
+      // Load categories, addresses, and notifications from mock API (not in backend spec)
+      const [categoriesResponse, addressesResponse, notificationsResponse] = await Promise.all([
         api.getCategories(),
-        api.getVendors(),
         api.getAddresses(),
         api.getNotifications(),
       ]);
 
       if (categoriesResponse.success) setCategories(categoriesResponse.categories);
-      if (vendorsResponse.success) setVendors(vendorsResponse.vendors);
       if (addressesResponse.success) setAddresses(addressesResponse.addresses);
       if (notificationsResponse.success) setNotifications(notificationsResponse.notifications);
+
+      // Load vendors from real backend discovery feed
+      try {
+        console.log('[HomeScreen] Fetching discovery feed from backend...');
+        const discoveryFeed = await searchService.getDiscoveryFeed({
+          latitude: 12.9716,
+          longitude: 77.5946,
+          radius: 5,
+        });
+
+        console.log('[HomeScreen] Discovery feed received:', discoveryFeed?.nearbyVendors?.length || 0, 'vendors');
+
+        // Transform backend vendors to match UI structure
+        const backendVendors = (discoveryFeed?.nearbyVendors || []).map(vendor => ({
+          id: vendor.branchId || vendor.vendorId,
+          name: vendor.displayName || vendor.branchName,
+          rating: vendor.rating || 4.5,
+          time: vendor.deliveryTime || '25-30 min',
+          distance: vendor.distance ? `${vendor.distance} ${vendor.distanceUnit || 'km'}` : '2 km',
+          price: vendor.minOrderValue ? `₹${vendor.minOrderValue} for two` : '₹200 for two',
+          offers: vendor.tags?.includes('Free Delivery') ? 'Free delivery' : '20% off on first order',
+          image: vendor.images?.primary || vendor.images?.cover?.thumbnail || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4',
+          promoted: vendor.tags?.includes('Promoted') || false,
+          menu: [],
+          // Store original data for navigation
+          _original: vendor,
+        }));
+
+        if (backendVendors.length > 0) {
+          setVendors(backendVendors);
+        } else {
+          // Fallback to mock vendors if backend returns empty
+          const vendorsResponse = await api.getVendors();
+          if (vendorsResponse.success) setVendors(vendorsResponse.vendors);
+        }
+      } catch (vendorError) {
+        console.error('[HomeScreen] Discovery feed error, using mock data:', vendorError.message);
+        // Fallback to mock vendors
+        const vendorsResponse = await api.getVendors();
+        if (vendorsResponse.success) setVendors(vendorsResponse.vendors);
+      }
     } catch (error) {
+      console.error('[HomeScreen] Failed to load home data:', error);
       Alert.alert('Error', 'Failed to load home data');
     } finally {
       setLoading(false);
@@ -162,12 +214,49 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  // Load "Order again" items from past orders
+  const loadOrderAgainItems = async () => {
+    try {
+      const orders = await orderService.listOrders();
+      if (orders && orders.length > 0) {
+        // Extract unique items from past orders
+        const itemsMap = new Map();
+        orders.forEach(order => {
+          const restaurantId = order.vendor?.vendorBranchId || order.vendor?.vendorId;
+          const restaurantName = order.vendor?.branchName || order.vendor?.vendorName || 'Restaurant';
+
+          (order.items || []).forEach(item => {
+            const key = `${restaurantId}-${item.menuItemId}`;
+            if (!itemsMap.has(key)) {
+              itemsMap.set(key, {
+                id: item.menuItemId,
+                menuItemId: item.menuItemId,
+                name: item.name,
+                price: item.unitPrice || item.priceAtOrder,
+                vendorId: restaurantId,
+                branchId: restaurantId,
+                restaurantName: restaurantName,
+              });
+            }
+          });
+        });
+
+        // Convert to array and take first 6 items
+        const items = Array.from(itemsMap.values()).slice(0, 6);
+        setOrderAgainItems(items);
+      }
+    } catch (error) {
+      console.error('Failed to load order again items:', error);
+      // No fallback - just show empty section
+    }
+  };
+
   const handleAddToCart = async (item, restaurantId, restaurantName) => {
     try {
       const response = await api.addToCart(item, restaurantId, restaurantName);
       if (response.success) {
         setCart(response.cart);
-        Alert.alert('Added to Cart', `${item.name} added to your cart.`);
+        // UI automatically updates with +/- controls via getItemQuantity
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to add item to cart');
@@ -308,13 +397,29 @@ const HomeScreen = ({ navigation }) => {
         <Text style={styles.filterTitle}>Sort by:</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
           {[
-            { label: 'Price: Low to High', key: 'price_low' },
-            { label: 'Price: High to Low', key: 'price_high' },
-            { label: 'Rating', key: 'rating' },
-            { label: 'Distance', key: 'distance' }
+            { label: 'Price: Low to High', key: 'price_low', icon: 'arrow-down' },
+            { label: 'Price: High to Low', key: 'price_high', icon: 'arrow-up' },
+            { label: 'Rating', key: 'rating', icon: 'star' },
+            { label: 'Distance', key: 'distance', icon: 'location' }
           ].map((filter) => (
-            <TouchableOpacity key={filter.key} style={styles.filterButton} onPress={() => handleSortPress(filter.key)}>
-              <Text style={styles.filterText}>{filter.label}</Text>
+            <TouchableOpacity
+              key={filter.key}
+              style={[
+                styles.filterButton,
+                sortBy === filter.key && styles.filterButtonActive
+              ]}
+              onPress={() => handleSortPress(filter.key)}
+            >
+              <Ionicons
+                name={filter.icon}
+                size={12}
+                color={sortBy === filter.key ? '#ffffff' : '#64748b'}
+                style={{ marginRight: 4 }}
+              />
+              <Text style={[
+                styles.filterText,
+                sortBy === filter.key && styles.filterTextActive
+              ]}>{filter.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -327,97 +432,109 @@ const HomeScreen = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Welcome Offer */}
-        <View style={[styles.offerCard, { backgroundColor: '#22c55e' }]}>
-          <View style={styles.offerContent}>
-            <View style={styles.offerTextContainer}>
-              <Text style={styles.offerTitle}>Welcome Offer!</Text>
-              <Text style={styles.offerSubtitle}>
-                Get 40% off on your first 3 orders with code NASHTO40
-              </Text>
+        {/* Welcome Offer - Enhanced with Gradient */}
+        <Animated.View entering={FadeInDown.duration(500).delay(100)}>
+          <GradientCard
+            preset="primary"
+            style={styles.offerCard}
+            onPress={handleClaimOffer}
+          >
+            <View style={styles.offerContent}>
+              <View style={styles.offerTextContainer}>
+                <View style={styles.offerBadge}>
+                  <Ionicons name="gift" size={14} color="#22c55e" />
+                  <Text style={styles.offerBadgeText}>LIMITED TIME</Text>
+                </View>
+                <Text style={styles.offerTitle}>Welcome Offer! 🎉</Text>
+                <Text style={styles.offerSubtitle}>
+                  Get 40% off on your first 3 orders with code NASHTO40
+                </Text>
+              </View>
+              <View style={styles.claimButtonContainer}>
+                <Button title="Claim" size="small" style={styles.claimButton} onPress={handleClaimOffer} />
+              </View>
             </View>
-            <Button title="Claim" size="small" style={styles.claimButton} onPress={handleClaimOffer} />
-          </View>
-        </View>
+          </GradientCard>
+        </Animated.View>
 
-        {/* Add Offer Section */}
-        <View style={styles.section}>
+        {/* Special Offers Section - Enhanced */}
+        <Animated.View entering={FadeInDown.duration(500).delay(200)} style={styles.section}>
           <Text style={styles.sectionTitle}>Special Offers</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {/* Placeholder for offers */}
-            <View style={styles.offerItem}>
-              <Text style={styles.offerItemTitle}>Free Delivery</Text>
-              <Text style={styles.offerItemSubtitle}>On orders above ₹500</Text>
-            </View>
-            <View style={styles.offerItem}>
-              <Text style={styles.offerItemTitle}>₹100 Off</Text>
-              <Text style={styles.offerItemSubtitle}>Use code WELCOME</Text>
-            </View>
-            <View style={styles.offerItem}>
-              <Text style={styles.offerItemTitle}>Buy 1 Get 1</Text>
-              <Text style={styles.offerItemSubtitle}>On selected items</Text>
-            </View>
-          </ScrollView>
-        </View>
-
-        {/* Categories */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Shop by category</Text>
-          <FlatList
-            data={categories}
-            renderItem={renderCategory}
-            keyExtractor={(item) => item.id.toString()}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesList}
-          />
-        </View>
-
-        {/* Order Again */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Order again</Text>
-            <TouchableOpacity onPress={handleSeeAllOrderAgain}>
-              <Text style={styles.seeAllText}>See all</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {[
-              { id: 1, name: 'Masala Chai', price: 25, vendorId: 1, restaurantName: 'Green Tea House' },
-              { id: 2, name: 'Samosa', price: 20, vendorId: 1, restaurantName: 'Green Tea House' },
-              { id: 3, name: 'Filter Coffee', price: 30, vendorId: 1, restaurantName: 'Green Tea House' },
-              { id: 4, name: 'Dhokla', price: 40, vendorId: 2, restaurantName: 'Herbal Garden Cafe' },
-              { id: 7, name: 'Dhokla', price: 40, vendorId: 3, restaurantName: 'Pure Veg Corner' },
-              { id: 19, name: 'Chocolate Cake', price: 80, vendorId: 5, restaurantName: 'Sweet Dreams Bakery' }
-            ].map((item) => (
-              <View key={item.id} style={styles.orderAgainItem}>
-                <Image source={{ uri: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100' }} style={styles.orderAgainImage} />
-                <Text style={styles.orderAgainName}>{item.name}</Text>
-                <Text style={styles.orderAgainVendor}>{item.restaurantName}</Text>
-                <Text style={styles.orderAgainPrice}>₹{item.price}</Text>
-                {getItemQuantity(item.id) > 0 ? (
-                  <View style={styles.quantityControls}>
-                    <TouchableOpacity
-                      style={styles.quantityButton}
-                      onPress={() => handleUpdateCartItem(item.vendorId, item.id, getItemQuantity(item.id) - 1)}
-                    >
-                      <Text style={styles.quantityButtonText}>-</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.quantityText}>{getItemQuantity(item.id)}</Text>
-                    <TouchableOpacity
-                      style={styles.quantityButton}
-                      onPress={() => handleUpdateCartItem(item.vendorId, item.id, getItemQuantity(item.id) + 1)}
-                    >
-                      <Text style={styles.quantityButtonText}>+</Text>
-                    </TouchableOpacity>
+              { title: 'Free Delivery', subtitle: 'On orders above ₹500', icon: 'bicycle', gradient: ['#8b5cf6', '#7c3aed'] },
+              { title: '₹100 Off', subtitle: 'Use code WELCOME', icon: 'pricetag', gradient: ['#f97316', '#ea580c'] },
+              { title: 'Buy 1 Get 1', subtitle: 'On selected items', icon: 'gift', gradient: ['#14b8a6', '#0d9488'] },
+            ].map((offer, index) => (
+              <ScaleOnPress key={index} style={styles.offerItem}>
+                <LinearGradient
+                  colors={offer.gradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.offerItemGradient}
+                >
+                  <View style={styles.offerIconContainer}>
+                    <Ionicons name={offer.icon} size={20} color="#ffffff" />
                   </View>
-                ) : (
-                  <Button title="Add" size="small" style={styles.addButton} onPress={() => handleAddToCart(item, item.vendorId, item.restaurantName)} />
-                )}
-              </View>
+                  <Text style={styles.offerItemTitle}>{offer.title}</Text>
+                  <Text style={styles.offerItemSubtitle}>{offer.subtitle}</Text>
+                </LinearGradient>
+              </ScaleOnPress>
             ))}
           </ScrollView>
-        </View>
+        </Animated.View>
+
+        {/* Categories - removed, no backend API available */}
+
+        {/* Order Again - only show if user has past orders */}
+        {orderAgainItems.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Order again</Text>
+              <TouchableOpacity onPress={handleSeeAllOrderAgain}>
+                <Text style={styles.seeAllText}>See all</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {orderAgainItems.map((item) => (
+                <View key={`${item.vendorId}-${item.id}`} style={styles.orderAgainItem}>
+                  <Image source={{ uri: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100' }} style={styles.orderAgainImage} />
+                  <Text style={styles.orderAgainName}>{item.name}</Text>
+                  <Text style={styles.orderAgainVendor}>{item.restaurantName}</Text>
+                  <Text style={styles.orderAgainPrice}>₹{item.price}</Text>
+                  {getItemQuantity(item.id) > 0 ? (
+                    <View style={styles.quantityControls}>
+                      <TouchableOpacity
+                        style={styles.quantityButton}
+                        onPress={() => handleUpdateCartItem(item.vendorId, item.id, getItemQuantity(item.id) - 1)}
+                      >
+                        <Text style={styles.quantityButtonText}>-</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.quantityText}>{getItemQuantity(item.id)}</Text>
+                      <TouchableOpacity
+                        style={styles.quantityButton}
+                        onPress={() => handleUpdateCartItem(item.vendorId, item.id, getItemQuantity(item.id) + 1)}
+                      >
+                        <Text style={styles.quantityButtonText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <Button
+                      title="Add"
+                      size="small"
+                      style={styles.addButton}
+                      onPress={() => handleAddToCart({
+                        ...item,
+                        menuItemId: item.menuItemId || item.id,
+                        branchId: item.branchId || item.vendorId,
+                      }, item.vendorId, item.restaurantName)}
+                    />
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Popular Stores */}
         <View style={styles.section}>
@@ -809,28 +926,38 @@ const styles = StyleSheet.create({
     height: 20,
   },
   offerItem: {
-    width: 150,
-    height: 80,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 12,
     marginRight: 12,
-    justifyContent: 'center',
+    borderRadius: 16,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  offerItemGradient: {
+    width: 140,
+    height: 90,
+    padding: 14,
+    justifyContent: 'space-between',
+  },
+  offerIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   offerItemTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 4,
+    color: '#ffffff',
   },
   offerItemSubtitle: {
-    fontSize: 12,
-    color: '#64748b',
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
   },
   bottomNav: {
     flexDirection: 'row',

@@ -7,6 +7,7 @@ import { ErrorResponse } from './types';
 class ApiClient {
     private baseUrl: string;
     private timeout: number;
+    // Customer ID is set after authentication via setCustomerId()
     private customerId: string | null = null;
 
     constructor() {

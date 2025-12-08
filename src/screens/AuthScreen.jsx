@@ -1,9 +1,11 @@
 import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
+import { LinearGradient } from 'expo-linear-gradient';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,9 +13,14 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { Button } from '../components/Button';
+import { GradientButton } from '../components/GradientCard';
 import { Input } from '../components/Input';
 import api from '../services/api';
+import { apiClient } from '../services/apiClient';
+
+const { width } = Dimensions.get('window');
 
 // Firebase configuration
 const firebaseConfig = {
@@ -160,6 +167,12 @@ const AuthScreen = ({ navigation }) => {
       const userCredential = await firebase.auth().signInWithCredential(credential);
       console.log('[AuthScreen] User signed in:', userCredential.user.uid);
 
+      // Set the customer ID for all API calls
+      // TODO: Map Firebase UID to backend UUID via user registration API
+      const customerUUID = '123e4567-e89b-12d3-a456-426614174000';
+      apiClient.setCustomerId(customerUUID);
+      console.log('[AuthScreen] Customer ID set for API calls:', customerUUID);
+
       navigation.navigate('Home');
     } catch (error) {
       console.error('[AuthScreen] Error verifying OTP:', error);
@@ -196,6 +209,11 @@ const AuthScreen = ({ navigation }) => {
   };
 
   const handleGuestLogin = () => {
+    // Set a development customer ID for guest users
+    // In production, this should create a proper guest session or require auth
+    const guestId = '123e4567-e89b-12d3-a456-426614174000';
+    apiClient.setCustomerId(guestId);
+    console.log('[AuthScreen] Guest login - Customer ID set:', guestId);
     navigation.navigate('Home');
   };
 
@@ -238,12 +256,11 @@ const AuthScreen = ({ navigation }) => {
       </View>
       {errors.otp && <Text style={styles.errorText}>{errors.otp}</Text>}
 
-      <Button
+      <GradientButton
         title={loading ? "Verifying..." : "Verify OTP"}
         onPress={handleVerifyOTP}
-        loading={loading}
-        style={styles.primaryButton}
         disabled={loading}
+        style={styles.primaryButton}
       />
 
       <View style={styles.resendContainer}>
@@ -259,7 +276,12 @@ const AuthScreen = ({ navigation }) => {
   );
 
   return (
-    <View style={styles.gradient}>
+    <LinearGradient
+      colors={['#f0fdf4', '#dcfce7', '#bbf7d0']}
+      style={styles.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+    >
       {/* Firebase reCAPTCHA Verifier Modal */}
       <FirebaseRecaptchaVerifierModal
         ref={recaptchaVerifier}
@@ -268,16 +290,26 @@ const AuthScreen = ({ navigation }) => {
       />
 
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-        {/* Header */}
-        <View style={styles.header}>
+        {/* Header with Logo Area */}
+        <Animated.View entering={FadeInDown.duration(600).delay(100)} style={styles.header}>
+          <View style={styles.logoContainer}>
+            <LinearGradient
+              colors={['#22c55e', '#16a34a']}
+              style={styles.logoGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={styles.logoText}>🥗</Text>
+            </LinearGradient>
+          </View>
           <Text style={styles.welcomeTitle}>Welcome to Nashtto</Text>
           <Text style={styles.welcomeSubtitle}>
             Pure vegetarian food delivered fresh to your doorstep
           </Text>
-        </View>
+        </Animated.View>
 
         {/* Auth Card */}
-        <View style={styles.authCard}>
+        <Animated.View entering={FadeInUp.duration(600).delay(300)} style={styles.authCard}>
           {/* Tab Navigation */}
           <View style={styles.tabContainer}>
             <TouchableOpacity
@@ -307,12 +339,11 @@ const AuthScreen = ({ navigation }) => {
                   maxLength={10}
                 />
 
-                <Button
+                <GradientButton
                   title={loading ? "Sending OTP..." : "Send OTP"}
                   onPress={handleSendOTP}
-                  loading={loading}
-                  style={styles.primaryButton}
                   disabled={loading}
+                  style={styles.primaryButton}
                 />
 
                 <Button
@@ -358,7 +389,12 @@ const AuthScreen = ({ navigation }) => {
                 </TouchableOpacity>
                 {errors.acceptTerms && <Text style={styles.errorText}>{errors.acceptTerms}</Text>}
 
-                <Button title={loading ? "Sending OTP..." : "Sign Up with OTP"} onPress={handleRegister} loading={loading} style={styles.primaryButton} disabled={loading} />
+                <GradientButton
+                  title={loading ? "Sending OTP..." : "Sign Up with OTP"}
+                  onPress={handleRegister}
+                  disabled={loading}
+                  style={styles.primaryButton}
+                />
 
                 <View style={styles.loginLink}>
                   <Text style={styles.loginLinkText}>Already have an account? </Text>
@@ -369,66 +405,313 @@ const AuthScreen = ({ navigation }) => {
               </View>
             )
           )}
-        </View>
+        </Animated.View>
 
         {/* Additional Info */}
-        <View style={styles.infoContainer}>
-          <View style={styles.infoItem}><Text style={styles.infoIcon}>✓</Text><Text style={styles.infoText}>100% Vegetarian</Text></View>
-          <View style={styles.infoItem}><Text style={styles.infoIcon}>✓</Text><Text style={styles.infoText}>Fresh & Healthy</Text></View>
-          <View style={styles.infoItem}><Text style={styles.infoIcon}>✓</Text><Text style={styles.infoText}>Fast Delivery</Text></View>
-        </View>
+        <Animated.View entering={FadeInUp.duration(600).delay(500)} style={styles.infoContainer}>
+          <View style={styles.infoItem}>
+            <View style={styles.infoIconContainer}>
+              <Text style={styles.infoIcon}>🌿</Text>
+            </View>
+            <Text style={styles.infoText}>100% Vegetarian</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <View style={styles.infoIconContainer}>
+              <Text style={styles.infoIcon}>✨</Text>
+            </View>
+            <Text style={styles.infoText}>Fresh & Healthy</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <View style={styles.infoIconContainer}>
+              <Text style={styles.infoIcon}>🚀</Text>
+            </View>
+            <Text style={styles.infoText}>Fast Delivery</Text>
+          </View>
+        </Animated.View>
       </ScrollView>
-    </View>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1, backgroundColor: '#f0fdf4' },
-  container: { flex: 1 },
-  contentContainer: { padding: 20, justifyContent: 'center', minHeight: '100%' },
-  header: { alignItems: 'center', marginBottom: 32 },
-  welcomeTitle: { fontSize: 32, fontWeight: 'bold', color: '#000000', textAlign: 'center', marginBottom: 8 },
-  welcomeSubtitle: { fontSize: 16, color: '#000000', textAlign: 'center' },
-  authCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 8 },
-  tabContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginBottom: 24 },
-  tab: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-  activeTab: { backgroundColor: '#ffffff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  tabText: { fontSize: 16, fontWeight: '600', color: '#64748b' },
-  activeTabText: { color: '#1e293b' },
-  formContainer: { gap: 16 },
-  primaryButton: { backgroundColor: '#22c55e' },
-  secondaryButton: { borderColor: '#22c55e', color: '#22c55e' },
-  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 24 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
-  dividerText: { marginHorizontal: 16, color: '#64748b', fontSize: 14 },
-  socialContainer: { flexDirection: 'row', gap: 12 },
-  socialButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, gap: 8 },
-  googleIcon: { fontSize: 18, fontWeight: 'bold', color: '#4285F4' },
-  facebookIcon: { fontSize: 18, fontWeight: 'bold', color: '#1877F2' },
-  socialButtonText: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
-  termsContainer: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  checkbox: { width: 20, height: 20, borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 4, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  checkboxChecked: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
-  checkmark: { color: '#ffffff', fontSize: 12, fontWeight: 'bold' },
-  termsText: { flex: 1, fontSize: 14, color: '#1e293b', lineHeight: 20 },
-  errorText: { color: '#ef4444', fontSize: 12, marginTop: -8 },
-  loginLink: { flexDirection: 'row', justifyContent: 'center', marginTop: 16 },
-  loginLinkText: { color: '#64748b' },
-  loginLinkButton: { color: '#22c55e', fontWeight: '600' },
-  infoContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 32 },
-  infoItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  infoIcon: { color: '#22c55e', fontSize: 16 },
-  infoText: { color: '#000000', fontSize: 12 },
-  backLink: { marginBottom: 16 },
-  backLinkText: { color: '#22c55e', fontSize: 14, fontWeight: '500' },
-  otpTitle: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', textAlign: 'center', marginBottom: 8 },
-  otpSubtitle: { fontSize: 14, color: '#64748b', textAlign: 'center', marginBottom: 24, lineHeight: 22 },
-  phoneHighlight: { color: '#1e293b', fontWeight: '600' },
-  otpInputContainer: { marginBottom: 8 },
-  otpInput: { backgroundColor: '#f8fafc', borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 16, fontSize: 24, fontWeight: 'bold', textAlign: 'center', letterSpacing: 8, color: '#1e293b' },
-  resendContainer: { alignItems: 'center', marginTop: 16 },
-  countdownText: { color: '#94a3b8', fontSize: 14 },
-  resendText: { color: '#22c55e', fontSize: 14, fontWeight: '600' },
+  gradient: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 20,
+    justifyContent: 'center',
+    minHeight: '100%',
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  logoContainer: {
+    marginBottom: 20,
+  },
+  logoGradient: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  logoText: {
+    fontSize: 40,
+  },
+  welcomeTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  authCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 24,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  activeTab: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  activeTabText: {
+    color: '#1e293b',
+  },
+  formContainer: {
+    gap: 16,
+  },
+  primaryButton: {
+    marginTop: 8,
+  },
+  secondaryButton: {
+    borderColor: '#22c55e',
+    borderWidth: 2,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  socialContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  socialButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 8,
+    backgroundColor: '#fafafa',
+  },
+  googleIcon: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4285F4',
+  },
+  facebookIcon: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1877F2',
+  },
+  socialButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  termsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: '#22c55e',
+    borderColor: '#22c55e',
+  },
+  checkmark: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#64748b',
+    lineHeight: 20,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginTop: -8,
+  },
+  loginLink: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  loginLinkText: {
+    color: '#64748b',
+    fontSize: 14,
+  },
+  loginLinkButton: {
+    color: '#22c55e',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  infoContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 32,
+    paddingHorizontal: 8,
+  },
+  infoItem: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  infoIcon: {
+    fontSize: 24,
+  },
+  infoText: {
+    color: '#1e293b',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  backLink: {
+    marginBottom: 16,
+  },
+  backLinkText: {
+    color: '#22c55e',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  otpTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  otpSubtitle: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  phoneHighlight: {
+    color: '#1e293b',
+    fontWeight: '600',
+  },
+  otpInputContainer: {
+    marginBottom: 8,
+  },
+  otpInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    letterSpacing: 8,
+    color: '#1e293b',
+  },
+  resendContainer: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  countdownText: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  resendText: {
+    color: '#22c55e',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
 
 export default AuthScreen;

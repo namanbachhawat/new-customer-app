@@ -1,27 +1,49 @@
-import React from 'react';
-import { AppRegistry } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import { StatusBar } from 'expo-status-bar';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import { useEffect } from 'react';
+import { AppRegistry } from 'react-native';
 
 import AuthScreen from './src/screens/AuthScreen.jsx';
-import HomeScreen from './src/screens/HomeScreen.jsx';
 import CartScreen from './src/screens/CartScreen.jsx';
-import SearchScreen from './src/screens/SearchScreen.js';
-import ProfileScreen from './src/screens/ProfileScreen.js';
+import HomeScreen from './src/screens/HomeScreen.jsx';
+import NotificationsScreen from './src/screens/NotificationsScreen.jsx';
+import OrderDetailsScreen from './src/screens/OrderDetailsScreen.jsx';
+import OrdersScreen from './src/screens/OrdersScreen.jsx';
 import PaymentScreen from './src/screens/PaymentScreen.js';
+import ProfileScreen from './src/screens/ProfileScreen.js';
+import ReviewsScreen from './src/screens/ReviewsScreen.jsx';
+import SearchScreen from './src/screens/SearchScreen.js';
+import SupportScreen from './src/screens/SupportScreen.jsx';
 import TrackingScreen from './src/screens/TrackingScreen.js';
 import VendorScreen from './src/screens/VendorScreen.jsx';
-import ReviewsScreen from './src/screens/ReviewsScreen.jsx';
-import SupportScreen from './src/screens/SupportScreen.jsx';
-import NotificationsScreen from './src/screens/NotificationsScreen.jsx';
-import OrdersScreen from './src/screens/OrdersScreen.jsx';
-import OrderDetailsScreen from './src/screens/OrderDetailsScreen.jsx';
 import WalletScreen from './src/screens/WalletScreen.jsx';
+import apiClient from './src/services/apiClient';
 
 const Stack = createStackNavigator();
 
 export default function App() {
+  // Listen to auth state changes and set customer ID
+  // TODO: Backend should support Firebase UIDs directly, or we need a user registration API
+  // For now, use a consistent development UUID when authenticated
+  useEffect(() => {
+    const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+      if (user) {
+        console.log('[App] Auth state restored, Firebase user:', user.uid);
+        // Use a consistent UUID format that the backend accepts
+        // In production, this should be mapped via a user registration API
+        const customerUUID = '123e4567-e89b-12d3-a456-426614174000';
+        apiClient.setCustomerId(customerUUID);
+        console.log('[App] Customer ID set:', customerUUID);
+      } else {
+        console.log('[App] No authenticated user');
+        apiClient.setCustomerId(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
   return (
     <NavigationContainer>
       <StatusBar style="auto" />
