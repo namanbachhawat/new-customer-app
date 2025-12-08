@@ -11,7 +11,41 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, CardContent } from '../components/Card';
-import api from '../services/api';
+import orderService from '../services/orderService';
+
+// Helper function to format order state for display
+const formatOrderState = (state) => {
+  const stateMap = {
+    'CREATED': 'Pending',
+    'VALIDATED': 'Confirmed',
+    'PAYMENT_CONFIRMED': 'Confirmed',
+    'PENDING_ACCEPTANCE': 'Pending',
+    'ACCEPTED': 'Confirmed',
+    'PREPARING': 'Preparing',
+    'READY_FOR_PICKUP': 'Ready',
+    'ASSIGNED_TO_RIDER': 'Out for Delivery',
+    'PICKED_UP': 'Out for Delivery',
+    'DELIVERED': 'Delivered',
+    'CLOSED': 'Delivered',
+    'CANCELLED': 'Cancelled',
+    'REJECTED': 'Cancelled',
+  };
+  return stateMap[state] || state || 'Unknown';
+};
+
+// Helper to format date
+const formatDate = (dateString) => {
+  if (!dateString) return 'Recently';
+  try {
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return 'Recently';
+  }
+};
 
 const OrdersScreen = ({ navigation }) => {
   const [orders, setOrders] = useState([]);
@@ -24,12 +58,37 @@ const OrdersScreen = ({ navigation }) => {
 
   const loadOrders = async () => {
     try {
-      const response = await api.getOrders();
-      if (response.success) {
-        setOrders(response.orders);
-      }
+      console.log('[OrdersScreen] Loading orders from backend...');
+      const response = await orderService.listOrders();
+      console.log('[OrdersScreen] Received orders:', response?.length || 0);
+
+      // Transform backend response to match UI structure
+      const transformedOrders = (response || []).map(order => ({
+        id: order.orderId || order.orderNumber,
+        vendorName: order.vendor?.vendorName || order.vendor?.branchName || 'Restaurant',
+        status: formatOrderState(order.orderState),
+        total: order.pricing?.totalAmount || 0,
+        date: formatDate(order.orderPlacedAt),
+        items: (order.items || []).map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.unitPrice || item.subtotal,
+        })),
+        // Keep original data for navigation
+        _original: order,
+      }));
+
+      // Sort by orderPlacedAt date (newest first)
+      transformedOrders.sort((a, b) => {
+        const dateA = new Date(a._original.orderPlacedAt || 0);
+        const dateB = new Date(b._original.orderPlacedAt || 0);
+        return dateB - dateA; // Descending order (newest first)
+      });
+
+      setOrders(transformedOrders);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load orders');
+      console.error('[OrdersScreen] Failed to load orders:', error);
+      Alert.alert('Error', 'Failed to load orders. Please try again.');
     } finally {
       setLoading(false);
     }

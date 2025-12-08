@@ -410,6 +410,58 @@ export interface OrderItemResponse {
     customizations?: Record<string, any>;
 }
 
+// Full order details response (from checkout/order APIs)
+export interface PaymentInfo {
+    status: string;
+    statusDisplayName?: string;
+    method?: string;
+    methodDisplayName?: string;
+    transactionId?: string;
+    amountPaid?: number;
+    paidAt?: string;
+}
+
+export interface DeliveryInfoResponse {
+    address: DeliveryAddress;
+    latitude?: number;
+    longitude?: number;
+    specialInstructions?: string;
+    estimatedDeliveryTime?: string;
+    estimatedPrepTime?: number;
+    estimatedDeliveryDuration?: number;
+    totalEstimatedTime?: number;
+    deliveryTimeRange?: string;
+}
+
+export interface OrderDetailsResponse {
+    // Checkout session fields
+    checkoutSessionId?: string;
+    status?: CheckoutStatus;
+    statusDisplayName?: string;
+    expiresAt?: string;
+
+    // Order fields
+    orderId?: string;
+    orderNumber?: string;
+    orderState?: OrderState;
+    orderStateDisplayName?: string;
+    orderPlacedAt?: string;
+
+    isSuccess?: boolean;
+    message?: string;
+    customerId?: string;
+
+    vendor?: VendorInfo;
+    items?: CheckoutItem[];
+    totalItemCount?: number;
+    pricing?: PricingDetails;
+    delivery?: DeliveryInfoResponse;
+    payment?: PaymentInfo;
+    validations?: ValidationResults;
+    errors?: CheckoutError[];
+    deliveryEstimate?: DeliveryEstimate;
+}
+
 export interface OrderResponse {
     orderId: string;
     customerId: string;

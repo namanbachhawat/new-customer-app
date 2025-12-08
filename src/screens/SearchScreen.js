@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
 import api from '../services/api';
+import searchService from '../services/searchService';
 
 const SearchScreen = ({ navigation, route }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,16 +56,72 @@ const SearchScreen = ({ navigation, route }) => {
 
     setLoading(true);
     try {
-      const params = {};
-      if (query.trim()) params.query = query;
-      if (categoryFilter && categoryFilter !== 'all') params.category = categoryFilter;
+      console.log('[SearchScreen] Searching:', query, 'category:', categoryFilter);
 
-      const response = await api.search(params);
-      if (response.success) {
-        setResults(response.results);
+      // Try real backend search first
+      const backendResponse = await searchService.search({
+        q: query.trim() || categoryFilter || 'food',
+        type: 'all',
+        latitude: 12.9716,
+        longitude: 77.5946,
+        radiusKm: 5,
+      });
+
+      console.log('[SearchScreen] Backend response:', backendResponse?.results);
+
+      // Transform backend response to match UI structure
+      const transformedVendors = (backendResponse?.results?.vendors || []).map(vendor => ({
+        id: vendor.branchId || vendor.vendorId,
+        name: vendor.displayName || vendor.branchName,
+        rating: vendor.rating || 4.5,
+        time: vendor.deliveryTime || '25-30 min',
+        distance: vendor.distance ? `${vendor.distance} km` : '2 km',
+        price: vendor.minOrderValue ? `₹${vendor.minOrderValue} for two` : '₹200 for two',
+        offers: '20% off on first order',
+        image: vendor.images?.primary || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4',
+        _original: vendor,
+      }));
+
+      const transformedItems = (backendResponse?.results?.items || []).map(item => ({
+        id: item.menuItemId || item.id,
+        name: item.name,
+        price: item.price,
+        vendorName: item.branchName || item.vendorName || 'Restaurant',
+        vendorId: item.branchId,
+        category: item.category,
+        image: item.images?.primary || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100',
+        _original: item,
+      }));
+
+      if (transformedVendors.length > 0 || transformedItems.length > 0) {
+        setResults({ vendors: transformedVendors, items: transformedItems });
+      } else {
+        // Fallback to mock if no results from backend
+        console.log('[SearchScreen] No backend results, trying mock...');
+        const params = {};
+        if (query.trim()) params.query = query;
+        if (categoryFilter && categoryFilter !== 'all') params.category = categoryFilter;
+
+        const response = await api.search(params);
+        if (response.success) {
+          setResults(response.results);
+        }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to perform search');
+      console.error('[SearchScreen] Search error, using mock:', error.message);
+      // Fallback to mock API on error
+      try {
+        const params = {};
+        if (query.trim()) params.query = query;
+        if (categoryFilter && categoryFilter !== 'all') params.category = categoryFilter;
+
+        const response = await api.search(params);
+        if (response.success) {
+          setResults(response.results);
+        }
+      } catch (mockError) {
+        Alert.alert('Error', 'Failed to perform search');
+      }
     } finally {
       setLoading(false);
     }
@@ -87,14 +144,71 @@ const SearchScreen = ({ navigation, route }) => {
     navigation.navigate('Vendor', { vendor });
   };
 
+  // Cart state for quantity controls
+  const [cart, setCart] = useState({ items: [] });
+
+  const loadCart = async () => {
+    try {
+      const response = await api.getCart();
+      if (response.success) {
+        setCart(response.cart);
+      }
+    } catch (error) {
+      console.error('Failed to load cart:', error);
+    }
+  };
+
+  // Load cart on mount and when screen focuses
+  useEffect(() => {
+    loadCart();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadCart);
+    return unsubscribe;
+  }, [navigation]);
+
+  const getItemQuantity = (itemId) => {
+    for (const restaurantGroup of cart.items || []) {
+      const cartItem = restaurantGroup.items.find(item => item.id === itemId);
+      if (cartItem) return cartItem.quantity;
+    }
+    return 0;
+  };
+
   const handleAddToCart = async (item) => {
     try {
-      const response = await api.addToCart(item);
+      const response = await api.addToCart(
+        {
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          menuItemId: item._original?.menuItemId || item.id,
+          branchId: item._original?.branchId || item.vendorId,
+        },
+        item._original?.branchId || item.vendorId,
+        item.vendorName
+      );
       if (response.success) {
-        Alert.alert('Success', `${item.name} added to cart!`);
+        setCart(response.cart);
+        // UI updates automatically with +/- controls
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to add item to cart');
+    }
+  };
+
+  const handleUpdateCartItem = async (restaurantId, itemId, quantity) => {
+    try {
+      if (quantity <= 0) {
+        const response = await api.removeFromCart(restaurantId, itemId);
+        if (response.success) setCart(response.cart);
+      } else {
+        const response = await api.updateCartItem(restaurantId, itemId, quantity);
+        if (response.success) setCart(response.cart);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update quantity');
     }
   };
 
@@ -148,24 +262,47 @@ const SearchScreen = ({ navigation, route }) => {
     </Card>
   );
 
-  const renderMenuItem = ({ item }) => (
-    <Card style={styles.resultCard}>
-      <View style={styles.itemContent}>
-        <Image source={{ uri: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100' }} style={styles.itemImage} />
-        <CardContent style={styles.itemInfo}>
-          <Text style={styles.itemName}>{item.name}</Text>
-          <Text style={styles.itemVendor}>{item.vendorName}</Text>
-          <Text style={styles.itemPrice}>₹{item.price}</Text>
-        </CardContent>
-        <Button
-          title="Add"
-          onPress={() => handleAddToCart(item)}
-          size="small"
-          style={styles.addButton}
-        />
-      </View>
-    </Card>
-  );
+  const renderMenuItem = ({ item }) => {
+    const quantity = getItemQuantity(item.id);
+    const restaurantId = item._original?.branchId || item.vendorId;
+
+    return (
+      <Card style={styles.resultCard}>
+        <View style={styles.itemContent}>
+          <Image source={{ uri: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100' }} style={styles.itemImage} />
+          <CardContent style={styles.itemInfo}>
+            <Text style={styles.itemName}>{item.name}</Text>
+            <Text style={styles.itemVendor}>{item.vendorName}</Text>
+            <Text style={styles.itemPrice}>₹{item.price}</Text>
+          </CardContent>
+          {quantity > 0 ? (
+            <View style={styles.quantityControls}>
+              <TouchableOpacity
+                style={styles.quantityButton}
+                onPress={() => handleUpdateCartItem(restaurantId, item.id, quantity - 1)}
+              >
+                <Text style={styles.quantityButtonText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.quantityText}>{quantity}</Text>
+              <TouchableOpacity
+                style={styles.quantityButton}
+                onPress={() => handleUpdateCartItem(restaurantId, item.id, quantity + 1)}
+              >
+                <Text style={styles.quantityButtonText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Button
+              title="Add"
+              onPress={() => handleAddToCart(item)}
+              size="small"
+              style={styles.addButton}
+            />
+          )}
+        </View>
+      </Card>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -506,6 +643,32 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20,
+  },
+  quantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    paddingHorizontal: 4,
+  },
+  quantityButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quantityButtonText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  quantityText: {
+    marginHorizontal: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e293b',
   },
 });
 

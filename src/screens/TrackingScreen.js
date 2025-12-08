@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import trackingService from '../services/trackingService';
 import AppTheme from '../theme';
 
 // Mock MapView component for development - replace with actual react-native-maps when available
@@ -24,11 +25,73 @@ const Marker = ({ title, description }) => (
   </View>
 );
 
+// Map backend status to UI step IDs
+const mapBackendStatusToStepId = (status) => {
+  const statusMap = {
+    'ORDER_PLACED': 'confirmed',
+    'ORDER_CONFIRMED': 'confirmed',
+    'PREPARING': 'preparing',
+    'RIDER_ASSIGNED': 'preparing',
+    'READY_FOR_PICKUP': 'ready',
+    'OUT_FOR_DELIVERY': 'picked_up',
+    'DELIVERED': 'delivered',
+    'CANCELLED': 'cancelled',
+  };
+  return statusMap[status] || 'confirmed';
+};
+
 const TrackingScreen = ({ route, navigation }) => {
   const { order } = route.params || {};
   const [orderStatus, setOrderStatus] = useState(order?.status?.toLowerCase() || 'preparing');
+  const [statusDetails, setStatusDetails] = useState(null);
+  const [riderInfo, setRiderInfo] = useState(null);
+  const [estimatedTime, setEstimatedTime] = useState(null);
+  const [riderLocation, setRiderLocation] = useState(null);
 
-  // Mock locations for demo
+  // Fetch real order status from backend
+  useEffect(() => {
+    if (!order?.id && !order?._original?.orderId) return;
+
+    const orderId = order?._original?.orderId || order?.id;
+    const customerId = order?._original?.customerId || '123e4567-e89b-12d3-a456-426614174000';
+
+    const fetchStatus = async () => {
+      try {
+        console.log('[TrackingScreen] Fetching order status for:', orderId);
+        const status = await trackingService.getOrderStatus(customerId, orderId);
+        console.log('[TrackingScreen] Status received:', status.status);
+
+        setOrderStatus(mapBackendStatusToStepId(status.status));
+        setStatusDetails(status);
+        setRiderInfo(status.riderInfo);
+        setEstimatedTime(status.estimatedMinutesRemaining);
+
+        // Try to get rider location if rider is assigned
+        if (status.riderInfo?.riderId) {
+          try {
+            const delivery = await trackingService.getDeliveryByOrderId(orderId);
+            if (delivery?.deliveryId) {
+              const location = await trackingService.getRiderLocation(delivery.deliveryId);
+              setRiderLocation(location);
+            }
+          } catch (locError) {
+            console.log('[TrackingScreen] Rider location not available:', locError.message);
+          }
+        }
+      } catch (error) {
+        console.error('[TrackingScreen] Error fetching status:', error);
+        // Keep using local order status if backend fails
+      }
+    };
+
+    fetchStatus();
+
+    // Poll for updates every 10 seconds
+    const interval = setInterval(fetchStatus, 10000);
+    return () => clearInterval(interval);
+  }, [order]);
+
+  // Mock locations for demo - updated with real rider location when available
   const shopLocation = {
     latitude: 19.0760,
     longitude: 72.8777,
@@ -36,7 +99,12 @@ const TrackingScreen = ({ route, navigation }) => {
     longitudeDelta: 0.01,
   };
 
-  const deliveryLocation = {
+  const deliveryLocation = riderLocation ? {
+    latitude: riderLocation.latitude,
+    longitude: riderLocation.longitude,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  } : {
     latitude: 19.0820,
     longitude: 72.8820,
     latitudeDelta: 0.01,
@@ -85,11 +153,11 @@ const TrackingScreen = ({ route, navigation }) => {
   };
 
   const trackingSteps = [
-    { id: 'confirmed', label: 'Order Confirmed', time: '2:30 PM' },
-    { id: 'preparing', label: 'Preparing Food', time: '2:45 PM' },
-    { id: 'ready', label: 'Ready for Pickup', time: '3:15 PM' },
-    { id: 'picked_up', label: 'Out for Delivery', time: '3:30 PM' },
-    { id: 'delivered', label: 'Delivered', time: '4:00 PM' }
+    { id: 'confirmed', label: 'Order Confirmed', time: statusDetails?.orderPlacedAt ? new Date(statusDetails.orderPlacedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...' },
+    { id: 'preparing', label: 'Preparing Food', time: '...' },
+    { id: 'ready', label: 'Ready for Pickup', time: '...' },
+    { id: 'picked_up', label: 'Out for Delivery', time: '...' },
+    { id: 'delivered', label: 'Delivered', time: estimatedTime ? `~${estimatedTime} min` : '...' }
   ];
 
   const currentStepIndex = trackingSteps.findIndex(step => step.id === orderStatus);

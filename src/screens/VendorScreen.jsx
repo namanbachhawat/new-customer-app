@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
 import api from '../services/api';
+import searchService from '../services/searchService';
 
 const VendorScreen = ({ navigation, route }) => {
   const { vendor } = route.params || {};
@@ -23,7 +24,9 @@ const VendorScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     if (vendor) {
-      loadVendorMenu(vendor.id);
+      // Use branchId from original data or vendor.id
+      const branchId = vendor._original?.branchId || vendor.id;
+      loadVendorMenu(branchId);
     }
   }, [vendor]);
 
@@ -46,14 +49,59 @@ const VendorScreen = ({ navigation, route }) => {
     }
   };
 
-  const loadVendorMenu = async (vendorId) => {
+  const loadVendorMenu = async (branchId) => {
     try {
-      const response = await api.getVendorMenu(vendorId);
-      if (response.success) {
-        setMenu(response.menu);
+      console.log('[VendorScreen] Loading menu for branch:', branchId);
+
+      // Try real backend API first
+      const menuResponse = await searchService.getVendorMenu({
+        branchId: typeof branchId === 'string' ? parseInt(branchId) : branchId,
+        latitude: 12.9716,
+        longitude: 77.5946,
+      });
+
+      console.log('[VendorScreen] Menu response:', menuResponse?.categories?.length, 'categories');
+
+      // Flatten categories into menu items
+      const menuItems = [];
+      (menuResponse?.categories || []).forEach(category => {
+        (category.items || []).forEach(item => {
+          menuItems.push({
+            id: item.menuItemId || item.id,
+            name: item.name,
+            price: item.price,
+            category: category.categoryName || item.category,
+            description: item.description,
+            image: item.images?.primary || 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100',
+            isAvailable: item.isAvailable !== false,
+            branchId: branchId,
+            menuItemId: item.menuItemId || item.id,
+            _original: item,
+          });
+        });
+      });
+
+      if (menuItems.length > 0) {
+        setMenu(menuItems);
+      } else {
+        // Fallback to mock API if backend returns empty
+        console.log('[VendorScreen] No backend menu, using mock');
+        const response = await api.getVendorMenu(branchId);
+        if (response.success) {
+          setMenu(response.menu);
+        }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to load menu');
+      console.error('[VendorScreen] Menu load error, using mock:', error.message);
+      // Fallback to mock API
+      try {
+        const response = await api.getVendorMenu(branchId);
+        if (response.success) {
+          setMenu(response.menu);
+        }
+      } catch (mockError) {
+        Alert.alert('Error', 'Failed to load menu');
+      }
     }
   };
 
@@ -69,13 +117,16 @@ const VendorScreen = ({ navigation, route }) => {
     const currentQty = getQuantity(item.id);
     if (currentQty === 0) {
       try {
+        // Pass real backend IDs for checkout to work
         const response = await api.addToCart(
           {
             id: item.id,
             name: item.name,
             price: item.price,
+            menuItemId: item.menuItemId || item.id, // Real backend menuItemId
+            branchId: item.branchId || vendorData._original?.branchId || vendorData.id, // Real backend branchId
           },
-          vendorData.id,
+          vendorData._original?.branchId || vendorData.id, // Use real branchId as restaurantId
           vendorData.name
         );
         if (response.success) {

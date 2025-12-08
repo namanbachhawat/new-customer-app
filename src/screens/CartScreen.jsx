@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
+import { checkoutService } from '../services';
 import api from '../services/api';
 
 const CartScreen = ({ navigation }) => {
@@ -22,6 +23,7 @@ const CartScreen = ({ navigation }) => {
   const [couponCode, setCouponCode] = useState('');
   const [showCouponInput, setShowCouponInput] = useState(false);
   const [selectedRestaurants, setSelectedRestaurants] = useState(new Set());
+  const [checkoutData, setCheckoutData] = useState(null); // Store backend checkout response
 
   useEffect(() => {
     loadCart();
@@ -35,11 +37,50 @@ const CartScreen = ({ navigation }) => {
         // Initialize selected restaurants
         const allRestaurants = new Set(response.cart.items.map(group => group.restaurantId));
         setSelectedRestaurants(allRestaurants);
+
+        // Auto-fetch prices from backend when cart loads
+        if (response.cart.items.length > 0) {
+          fetchCheckoutPrices(response.cart.items);
+        }
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to load cart items');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // Auto-fetch real-time pricing from backend
+  const fetchCheckoutPrices = async (cartItems = cart.items) => {
+    if (!cartItems || cartItems.length === 0) {
+      setCheckoutData(null);
+      return;
+    }
+    try {
+      const restaurantGroup = cartItems[0];
+      const checkoutRequest = {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        vendorBranchId: restaurantGroup.items[0]?.branchId || parseInt(restaurantGroup.restaurantId) || 5,
+        deliveryAddress: {
+          addressLine1: '123 Main Street',
+          city: 'Bangalore',
+          state: 'Karnataka',
+          pincode: '560001',
+        },
+        deliveryLocation: { latitude: 12.9716, longitude: 77.5946 },
+        items: restaurantGroup.items.map(item => ({
+          menuItemId: parseInt(item.menuItemId) || parseInt(item.id) || 1,
+          quantity: item.quantity,
+        })),
+        paymentMethod: 'GPAY',
+      };
+      console.log('[CartScreen] Auto-fetching prices...');
+      const response = await checkoutService.calculateCheckout(checkoutRequest);
+      console.log('[CartScreen] Prices fetched:', JSON.stringify(response.pricing, null, 2));
+      setCheckoutData(response);
+    } catch (error) {
+      console.error('[CartScreen] Price fetch failed:', error);
+      setCheckoutData(null);
     }
   };
 
@@ -59,7 +100,8 @@ const CartScreen = ({ navigation }) => {
       if (response.success && response.cart) {
         // Update cart state with the new cart data
         setCart(response.cart);
-        
+        fetchCheckoutPrices(response.cart.items); // Refresh prices
+
         // Update selected restaurants based on new cart
         const updatedRestaurants = new Set(response.cart.items.map(group => group.restaurantId));
         setSelectedRestaurants(prevSelected => {
@@ -81,7 +123,8 @@ const CartScreen = ({ navigation }) => {
       if (response.success && response.cart) {
         // Update cart state with the new cart data
         setCart(response.cart);
-        
+        fetchCheckoutPrices(response.cart.items); // Refresh prices
+
         // Update selected restaurants based on new cart
         const updatedRestaurants = new Set(response.cart.items.map(group => group.restaurantId));
         setSelectedRestaurants(prevSelected => {
@@ -103,7 +146,7 @@ const CartScreen = ({ navigation }) => {
       if (response.success && response.cart) {
         // Update cart state with the new cart data
         setCart(response.cart);
-        
+
         // Update selected restaurants - remove the cleared restaurant
         const newSelected = new Set(selectedRestaurants);
         newSelected.delete(restaurantId);
@@ -143,6 +186,8 @@ const CartScreen = ({ navigation }) => {
 
   const getSelectedRestaurantsTotal = () => {
     const selectedItems = cart.items.filter(group => selectedRestaurants.has(group.restaurantId));
+    // Use backend pricing if available
+    if (checkoutData?.pricing?.totalAmount) return checkoutData.pricing.totalAmount;
     return selectedItems.reduce((total, group) => {
       const subtotal = group.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
       return total + subtotal + (group.deliveryFee || 0) + (subtotal * 0.05); // Including tax
@@ -179,23 +224,52 @@ const CartScreen = ({ navigation }) => {
     );
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cart.items.length === 0) {
       Alert.alert('Empty Cart', 'Please add items to your cart before checkout');
       return;
     }
-
     if (selectedRestaurants.size === 0) {
       Alert.alert('No Restaurants Selected', 'Please select at least one restaurant to checkout');
       return;
     }
 
     const selectedItems = cart.items.filter(group => selectedRestaurants.has(group.restaurantId));
-    navigation.navigate('Payment', {
-      cart: selectedItems,
-      deliveryAddress: cart.deliveryAddress,
-      globalCoupon: cart.globalCoupon
-    });
+    const restaurantGroup = selectedItems[0];
+    setLoading(true);
+
+    try {
+      const checkoutRequest = {
+        userId: '123e4567-e89b-12d3-a456-426614174000', // Use a valid UUID
+        vendorBranchId: restaurantGroup.items[0]?.branchId || parseInt(restaurantGroup.restaurantId) || 5,
+        deliveryAddress: cart.deliveryAddress || {
+          addressLine1: '123 Main Street',
+          city: 'Bangalore',
+          state: 'Karnataka',
+          pincode: '560001',
+        },
+        deliveryLocation: { latitude: 12.9716, longitude: 77.5946 },
+        items: restaurantGroup.items.map(item => ({
+          menuItemId: parseInt(item.menuItemId) || parseInt(item.id) || 1,
+          quantity: item.quantity,
+        })),
+        paymentMethod: 'GPAY', // Hardcoded for now
+      };
+
+      console.log('[CartScreen] Checkout request:', JSON.stringify(checkoutRequest, null, 2));
+      const response = await checkoutService.calculateCheckout(checkoutRequest);
+      console.log('[CartScreen] Checkout response:', JSON.stringify(response, null, 2));
+
+      navigation.navigate('Payment', {
+        cart: selectedItems,
+        checkoutResponse: response,
+      });
+    } catch (error) {
+      console.error('[CartScreen] Checkout error:', error);
+      Alert.alert('Checkout Error', error.message || 'Failed to calculate checkout.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getTotalPrice = (restaurantGroup = null) => {
@@ -211,12 +285,21 @@ const CartScreen = ({ navigation }) => {
   };
 
   const calculateRestaurantTotal = (restaurantGroup) => {
+    // Use backend pricing if available
+    if (checkoutData?.pricing) {
+      return {
+        subtotal: checkoutData.pricing.itemTotal || 0,
+        deliveryFee: checkoutData.pricing.deliveryCharges || 0,
+        tax: checkoutData.pricing.gst || 0,
+        platformFee: checkoutData.pricing.platformFee || 0,
+        discount: checkoutData.pricing.discount || 0,
+        total: checkoutData.pricing.totalAmount || 0
+      };
+    }
     const subtotal = getTotalPrice(restaurantGroup);
     const deliveryFee = restaurantGroup.deliveryFee || 0;
-    const tax = subtotal * 0.05; // 5% GST
+    const tax = subtotal * 0.05;
     let discount = 0;
-
-    // Apply restaurant-specific coupons
     if (restaurantGroup.coupons) {
       restaurantGroup.coupons.forEach(coupon => {
         if (coupon.type === 'restaurant' && subtotal >= coupon.minOrder) {
@@ -224,12 +307,9 @@ const CartScreen = ({ navigation }) => {
         }
       });
     }
-
-    // Apply global coupon
     if (cart.globalCoupon && subtotal >= cart.globalCoupon.minOrder) {
       discount += subtotal * (cart.globalCoupon.discount / 100);
     }
-
     return {
       subtotal: subtotal || 0,
       deliveryFee,
@@ -346,6 +426,12 @@ const CartScreen = ({ navigation }) => {
             <Text style={styles.summaryLabel}>GST:</Text>
             <Text style={styles.summaryValue}>₹{totals.tax.toFixed(2)}</Text>
           </View>
+          {totals.platformFee > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Platform Fee:</Text>
+              <Text style={styles.summaryValue}>₹{totals.platformFee.toFixed(2)}</Text>
+            </View>
+          )}
           {totals.discount > 0 && (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Discount:</Text>

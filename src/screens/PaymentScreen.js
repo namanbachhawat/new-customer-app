@@ -13,9 +13,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
 import api from '../services/api';
+import orderService from '../services/orderService';
 
 const PaymentScreen = ({ navigation, route }) => {
-  const { cart } = route.params || {};
+  const { cart, checkoutResponse } = route.params || {};
   const [cartItems, setCartItems] = useState(cart || []);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('upi');
   const [cardDetails, setCardDetails] = useState({
@@ -35,7 +36,6 @@ const PaymentScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     if (!cart) {
-      // Load cart if not passed as params
       loadCart();
     }
   }, []);
@@ -52,119 +52,60 @@ const PaymentScreen = ({ navigation, route }) => {
   };
 
   const getTotalPrice = () => {
-    // Handle both multi-restaurant structure and flat array
+    if (checkoutResponse?.pricing?.itemTotal != null) {
+      return checkoutResponse.pricing.itemTotal;
+    }
     if (cartItems.length > 0 && cartItems[0].restaurantId) {
-      // Multi-restaurant structure
       return cartItems.reduce((total, restaurant) => {
         return total + restaurant.items.reduce((restaurantTotal, item) => {
-          return restaurantTotal + (item.price * item.quantity);
+          return restaurantTotal + ((item.price || item.unitPrice || 0) * (item.quantity || 1));
         }, 0);
       }, 0);
-    } else {
-      // Flat array structure
-      return cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
     }
+    return cartItems.reduce((total, item) => total + ((item.price || item.unitPrice || 0) * (item.quantity || 1)), 0);
   };
 
-  const getDeliveryFee = () => 40;
-  const getGST = () => getTotalPrice() * 0.05;
-  const getGrandTotal = () => getTotalPrice() + getDeliveryFee() + getGST();
+  const getDeliveryFee = () => checkoutResponse?.pricing?.deliveryCharges ?? 40;
+  const getGST = () => checkoutResponse?.pricing?.gst ?? getTotalPrice() * 0.05;
+  const getPlatformFee = () => checkoutResponse?.pricing?.platformFee ?? 0;
+  const getGrandTotal = () => checkoutResponse?.pricing?.totalAmount ?? (getTotalPrice() + getDeliveryFee() + getGST());
 
   const handlePayment = async () => {
-    if (selectedPaymentMethod === 'upi' && !cardDetails.number) {
-      Alert.alert('Missing Information', 'Please enter UPI ID');
+    if (!checkoutResponse?.checkoutSessionId) {
+      Alert.alert('Error', 'No valid checkout session. Please go back and try again.');
       return;
     }
 
     setLoading(true);
 
     try {
-      const paymentData = {
-        amount: getGrandTotal(),
-        method: selectedPaymentMethod,
-        items: cartItems,
-        address: deliveryAddress,
+      console.log('[PaymentScreen] Creating order with sessionId:', checkoutResponse.checkoutSessionId);
+
+      const orderRequest = {
+        checkoutSessionId: checkoutResponse.checkoutSessionId,
+        paymentToken: 'tok_gpay_1234',
       };
 
-      const response = await api.processPayment(paymentData);
+      console.log('[PaymentScreen] Order request:', JSON.stringify(orderRequest, null, 2));
+      const orderResponse = await orderService.createOrder(orderRequest);
+      console.log('[PaymentScreen] Order response:', JSON.stringify(orderResponse, null, 2));
 
-      if (response.success) {
-        const placedOrders = [];
-        let errors = [];
-
-        // Handle multi-restaurant structure
-        if (cartItems.length > 0 && cartItems[0].restaurantId) {
-          for (const restaurantGroup of cartItems) {
-            const subtotal = restaurantGroup.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const deliveryFee = restaurantGroup.deliveryFee || 40; // Use group fee or default
-            const gst = subtotal * 0.05;
-            const total = subtotal + deliveryFee + gst;
-
-            const orderData = {
-              vendorName: restaurantGroup.restaurantName,
-              total: total,
-              items: restaurantGroup.items.map(item => ({
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-              })),
-            };
-
-            const orderResponse = await api.placeOrder(orderData);
-            if (orderResponse.success) {
-              placedOrders.push(orderResponse.order);
-            } else {
-              errors.push(`Failed to place order for ${restaurantGroup.restaurantName}`);
-            }
-          }
-        } else {
-          // Fallback for flat structure (legacy support)
-          const orderData = {
-            vendorName: 'Green Tea House',
-            total: getGrandTotal(),
-            items: cartItems.map(item => ({
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-            })),
-          };
-          const orderResponse = await api.placeOrder(orderData);
-          if (orderResponse.success) {
-            placedOrders.push(orderResponse.order);
-          } else {
-            errors.push('Failed to place order');
-          }
-        }
-
-        if (placedOrders.length > 0) {
-          const message = placedOrders.length > 1
-            ? `Successfully placed ${placedOrders.length} orders!`
-            : `Your order has been placed successfully.\nOrder ID: ${placedOrders[0].orderId}`;
-
-          Alert.alert(
-            'Payment Successful!',
-            message,
-            [
-              {
-                text: 'View Orders',
-                onPress: () => navigation.navigate('Orders'),
-              },
-              {
-                text: 'Back to Home',
-                onPress: () => navigation.navigate('Home'),
-                style: 'cancel',
-              },
-            ]
-          );
-        } else {
-          Alert.alert('Error', 'Order placement failed. ' + errors.join('\n'));
-        }
+      if (orderResponse?.orderId) {
+        Alert.alert(
+          'Payment Successful!',
+          `Your order has been placed.\nOrder ID: ${orderResponse.orderId}`,
+          [
+            { text: 'View Orders', onPress: () => navigation.navigate('Orders') },
+            { text: 'Back to Home', onPress: () => navigation.navigate('Home'), style: 'cancel' },
+          ]
+        );
       } else {
-        Alert.alert('Payment Failed', response.error || 'Please try again or choose a different payment method.');
+        Alert.alert('Order Created', 'Your order is being processed.');
+        navigation.navigate('Orders');
       }
     } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Payment processing failed. Please try again.');
+      console.error('[PaymentScreen] Error:', error);
+      Alert.alert('Error', error?.message || 'Failed to create order.');
     } finally {
       setLoading(false);
     }
@@ -200,44 +141,6 @@ const PaymentScreen = ({ navigation, route }) => {
     </TouchableOpacity>
   );
 
-  const renderCardForm = () => (
-    <View style={styles.cardForm}>
-      <TextInput
-        style={styles.input}
-        placeholder="Card Number"
-        value={cardDetails.number}
-        onChangeText={(text) => setCardDetails({ ...cardDetails, number: text })}
-        keyboardType="numeric"
-        placeholderTextColor="#64748b"
-      />
-      <View style={styles.row}>
-        <TextInput
-          style={[styles.input, styles.halfInput]}
-          placeholder="MM/YY"
-          value={cardDetails.expiry}
-          onChangeText={(text) => setCardDetails({ ...cardDetails, expiry: text })}
-          placeholderTextColor="#64748b"
-        />
-        <TextInput
-          style={[styles.input, styles.halfInput]}
-          placeholder="CVV"
-          value={cardDetails.cvv}
-          onChangeText={(text) => setCardDetails({ ...cardDetails, cvv: text })}
-          keyboardType="numeric"
-          secureTextEntry
-          placeholderTextColor="#64748b"
-        />
-      </View>
-      <TextInput
-        style={styles.input}
-        placeholder="Cardholder Name"
-        value={cardDetails.name}
-        onChangeText={(text) => setCardDetails({ ...cardDetails, name: text })}
-        placeholderTextColor="#64748b"
-      />
-    </View>
-  );
-
   const renderUPIForm = () => (
     <View style={styles.upiForm}>
       <TextInput
@@ -269,34 +172,19 @@ const PaymentScreen = ({ navigation, route }) => {
         <View style={styles.orderSummary}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
 
-          {/* Handle both multi-restaurant and flat cart structures */}
-          {cartItems.length > 0 && cartItems[0].restaurantId ? (
-            // Multi-restaurant structure
-            cartItems.map((restaurant, restaurantIndex) => (
-              <View key={restaurantIndex} style={styles.restaurantSection}>
-                <Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
-                {restaurant.items.map((item, itemIndex) => (
-                  <View key={itemIndex} style={styles.orderItem}>
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{item.name}</Text>
-                      <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
-                    </View>
-                    <Text style={styles.itemPrice}>₹{item.price * item.quantity}</Text>
-                  </View>
-                ))}
-              </View>
-            ))
-          ) : (
-            // Flat array structure
-            cartItems.map((item, index) => (
+          {/* Display items from checkoutResponse */}
+          {checkoutResponse?.items ? (
+            checkoutResponse.items.map((item, index) => (
               <View key={index} style={styles.orderItem}>
                 <View style={styles.itemInfo}>
                   <Text style={styles.itemName}>{item.name}</Text>
                   <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
                 </View>
-                <Text style={styles.itemPrice}>₹{item.price * item.quantity}</Text>
+                <Text style={styles.itemPrice}>₹{item.subtotal || (item.unitPrice * item.quantity)}</Text>
               </View>
             ))
+          ) : (
+            <Text style={styles.summaryLabel}>Loading items...</Text>
           )}
 
           <View style={styles.divider} />
@@ -309,6 +197,12 @@ const PaymentScreen = ({ navigation, route }) => {
             <Text style={styles.summaryLabel}>Delivery Fee:</Text>
             <Text style={styles.summaryValue}>₹{getDeliveryFee()}</Text>
           </View>
+          {getPlatformFee() > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Platform Fee:</Text>
+              <Text style={styles.summaryValue}>₹{getPlatformFee().toFixed(2)}</Text>
+            </View>
+          )}
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>GST (5%):</Text>
             <Text style={styles.summaryValue}>₹{getGST().toFixed(2)}</Text>
@@ -386,10 +280,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  backButtonText: {
-    fontSize: 18,
-    color: '#64748b',
   },
   headerTitle: {
     fontSize: 18,
@@ -480,10 +370,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  addressIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
   addressInfo: {
     flex: 1,
   },
@@ -509,7 +395,7 @@ const styles = StyleSheet.create({
   paymentSection: {
     marginTop: 24,
   },
-  paymentMethod: {
+  paymentMethodCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -524,15 +410,8 @@ const styles = StyleSheet.create({
     borderColor: '#22c55e',
     backgroundColor: '#f0fdf4',
   },
-  methodContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  methodIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
   methodName: {
+    flex: 1,
     fontSize: 16,
     color: '#1e293b',
   },
@@ -558,9 +437,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#22c55e',
   },
-  cardForm: {
-    marginTop: 16,
-  },
   upiForm: {
     marginTop: 16,
   },
@@ -574,25 +450,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1e293b',
     marginBottom: 12,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  halfInput: {
-    flex: 0.48,
-  },
-  restaurantSection: {
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  restaurantName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 8,
   },
   checkoutContainer: {
     backgroundColor: '#ffffff',
