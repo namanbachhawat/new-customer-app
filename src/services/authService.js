@@ -1,8 +1,8 @@
 // Firebase Authentication Service for Phone OTP
-// Using compat API for better Expo compatibility
-import { auth } from './firebaseConfig';
+// Using @react-native-firebase/auth
+import auth from '@react-native-firebase/auth';
 
-// Store verification ID for OTP confirmation
+// Store verification confirmation for OTP
 let confirmationResult = null;
 
 /**
@@ -17,30 +17,12 @@ export async function sendOTP(phoneNumber) {
         // Format phone number if needed
         const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
 
-        // For Expo Go, we use a simplified development flow
-        // Real Firebase phone auth requires a native build with reCAPTCHA
-        console.log('[AuthService] Development mode - simulating OTP send');
+        // Use Firebase Phone Auth
+        const confirmation = await auth().signInWithPhoneNumber(formattedPhone);
+        confirmationResult = confirmation;
 
-        // Store a mock confirmation for development
-        confirmationResult = {
-            verificationId: 'dev-verification-' + Date.now(),
-            phoneNumber: formattedPhone,
-            confirm: async (code) => {
-                // In development, accept any 6-digit code
-                if (code.length === 6 && /^\d+$/.test(code)) {
-                    return {
-                        user: {
-                            uid: 'dev-user-' + Date.now(),
-                            phoneNumber: formattedPhone,
-                        }
-                    };
-                }
-                throw new Error('Invalid OTP code');
-            }
-        };
-
-        console.log('[AuthService] OTP sent successfully (dev mode)');
-        return { success: true, isDevelopment: true };
+        console.log('[AuthService] OTP sent successfully');
+        return { success: true };
 
     } catch (error) {
         console.error('[AuthService] Error sending OTP:', error);
@@ -70,7 +52,7 @@ export async function verifyOTP(otpCode) {
     } catch (error) {
         console.error('[AuthService] Error verifying OTP:', error);
 
-        if (error.message === 'Invalid OTP code') {
+        if (error.code === 'auth/invalid-verification-code') {
             return { success: false, error: 'Invalid OTP. Please enter a valid 6-digit code.' };
         }
 
@@ -83,7 +65,7 @@ export async function verifyOTP(otpCode) {
  */
 export async function signOut() {
     try {
-        await auth.signOut();
+        await auth().signOut();
         confirmationResult = null;
         console.log('[AuthService] User signed out');
         return { success: true };
@@ -97,21 +79,21 @@ export async function signOut() {
  * Get current user
  */
 export function getCurrentUser() {
-    return auth.currentUser;
+    return auth().currentUser;
 }
 
 /**
  * Listen to auth state changes
  */
 export function onAuthChange(callback) {
-    return auth.onAuthStateChanged(callback);
+    return auth().onAuthStateChanged(callback);
 }
 
 /**
  * Check if user is authenticated
  */
 export function isAuthenticated() {
-    return !!auth.currentUser;
+    return !!auth().currentUser;
 }
 
 export default {
@@ -122,3 +104,4 @@ export default {
     onAuthChange,
     isAuthenticated,
 };
+

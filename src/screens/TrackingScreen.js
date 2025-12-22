@@ -1,29 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapmyIndiaMap from '../components/MapmyIndiaMap';
 import trackingService from '../services/trackingService';
-import AppTheme from '../theme';
 
-// Mock MapView component for development - replace with actual react-native-maps when available
-const MapView = ({ children, style, initialRegion }) => (
-  <TouchableOpacity style={[style, { backgroundColor: '#f0f9ff', justifyContent: 'center', alignItems: 'center', padding: 12, borderRadius: 8, marginBottom: 16 }]}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Ionicons name="map-outline" size={16} color="#64748b" style={{ marginRight: 8 }} />
-        <Text style={{ color: '#666', fontSize: 14 }}>Map View</Text>
-      </View>
-    </View>
-    <Text style={{ color: '#999', fontSize: 12, marginTop: 8 }}>Install react-native-maps for full functionality</Text>
-    {children}
-  </TouchableOpacity>
-);
-
-const Marker = ({ title, description }) => (
-  <View style={{ position: 'absolute', top: 10, left: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-    <Ionicons name="location" size={12} color="#666" style={{ marginRight: 4 }} />
-    <Text style={{ fontSize: 12, color: '#333' }}>{title}</Text>
-  </View>
-);
 
 // Map backend status to UI step IDs
 const mapBackendStatusToStepId = (status) => {
@@ -41,12 +21,21 @@ const mapBackendStatusToStepId = (status) => {
 };
 
 const TrackingScreen = ({ route, navigation }) => {
-  const { order } = route.params || {};
-  const [orderStatus, setOrderStatus] = useState(order?.status?.toLowerCase() || 'preparing');
+  const { order, isNewOrder } = route.params || {};
+  const [orderStatus, setOrderStatus] = useState(order?.status?.toLowerCase() || 'confirmed');
   const [statusDetails, setStatusDetails] = useState(null);
   const [riderInfo, setRiderInfo] = useState(null);
-  const [estimatedTime, setEstimatedTime] = useState(null);
+  const [estimatedTime, setEstimatedTime] = useState(25);
   const [riderLocation, setRiderLocation] = useState(null);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(isNewOrder);
+
+  // Hide success banner after 4 seconds
+  useEffect(() => {
+    if (showSuccessBanner) {
+      const timer = setTimeout(() => setShowSuccessBanner(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccessBanner]);
 
   // Fetch real order status from backend
   useEffect(() => {
@@ -64,7 +53,7 @@ const TrackingScreen = ({ route, navigation }) => {
         setOrderStatus(mapBackendStatusToStepId(status.status));
         setStatusDetails(status);
         setRiderInfo(status.riderInfo);
-        setEstimatedTime(status.estimatedMinutesRemaining);
+        setEstimatedTime(status.estimatedMinutesRemaining || 25);
 
         // Try to get rider location if rider is assigned
         if (status.riderInfo?.riderId) {
@@ -135,29 +124,30 @@ const TrackingScreen = ({ route, navigation }) => {
     }
   };
 
-  const getStatusIcon = (statusId) => {
+  const getStatusIcon = (statusId, isActive) => {
+    const color = isActive ? '#ffffff' : '#94a3b8';
     switch (statusId) {
       case 'confirmed':
-        return <Ionicons name="checkmark-circle" size={20} color="#22c55e" />;
+        return <Ionicons name="checkmark" size={16} color={color} />;
       case 'preparing':
-        return <Ionicons name="restaurant-outline" size={20} color="#64748b" />;
+        return <Ionicons name="restaurant" size={16} color={color} />;
       case 'ready':
-        return <Ionicons name="fast-food-outline" size={20} color="#64748b" />;
+        return <Ionicons name="bag-check" size={16} color={color} />;
       case 'picked_up':
-        return <Ionicons name="bicycle-outline" size={20} color="#64748b" />;
+        return <Ionicons name="bicycle" size={16} color={color} />;
       case 'delivered':
-        return <Ionicons name="home-outline" size={20} color="#64748b" />;
+        return <Ionicons name="home" size={16} color={color} />;
       default:
-        return <Ionicons name="radio-button-off" size={20} color="#cbd5e1" />;
+        return <Ionicons name="ellipse-outline" size={16} color={color} />;
     }
   };
 
   const trackingSteps = [
-    { id: 'confirmed', label: 'Order Confirmed', time: statusDetails?.orderPlacedAt ? new Date(statusDetails.orderPlacedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...' },
-    { id: 'preparing', label: 'Preparing Food', time: '...' },
-    { id: 'ready', label: 'Ready for Pickup', time: '...' },
-    { id: 'picked_up', label: 'Out for Delivery', time: '...' },
-    { id: 'delivered', label: 'Delivered', time: estimatedTime ? `~${estimatedTime} min` : '...' }
+    { id: 'confirmed', label: 'Order\nConfirmed' },
+    { id: 'preparing', label: 'Preparing\nFood' },
+    { id: 'ready', label: 'Ready for\nPickup' },
+    { id: 'picked_up', label: 'Out for\nDelivery' },
+    { id: 'delivered', label: 'Delivered' }
   ];
 
   const currentStepIndex = trackingSteps.findIndex(step => step.id === orderStatus);
@@ -166,303 +156,278 @@ const TrackingScreen = ({ route, navigation }) => {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Order Tracking</Text>
+          <View style={{ width: 40 }} />
         </View>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text>No order details available.</Text>
+          <Ionicons name="receipt-outline" size={64} color="#cbd5e1" />
+          <Text style={{ marginTop: 16, color: '#64748b' }}>No order details available.</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', left: 20, top: 65, zIndex: 1 }}>
-            <Ionicons name="arrow-back" size={28} color="white" />
-          </TouchableOpacity>
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Order Tracking</Text>
-          <Text style={styles.headerSubtitle}>Order #{order.id}</Text>
+          <Text style={styles.orderId}>#{(order.id || '').slice(0, 8)}...</Text>
+        </View>
+        <View style={styles.etaBadge}>
+          <Text style={styles.etaNumber}>{estimatedTime}</Text>
+          <Text style={styles.etaLabel}>min</Text>
+        </View>
+      </View>
+
+      {/* Success Banner */}
+      {showSuccessBanner && (
+        <View style={styles.successBanner}>
+          <Ionicons name="checkmark-circle" size={24} color="#ffffff" />
+          <Text style={styles.successText}>Order placed successfully!</Text>
+        </View>
+      )}
+
+      <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+        {/* Map Section - Large */}
+        <View style={styles.mapContainer}>
+          <MapmyIndiaMap
+            style={styles.map}
+            center={{
+              latitude: shopLocation.latitude,
+              longitude: shopLocation.longitude,
+            }}
+            zoom={14}
+            markers={[
+              {
+                latitude: shopLocation.latitude,
+                longitude: shopLocation.longitude,
+                title: order.vendorName || 'Restaurant',
+              },
+              {
+                latitude: deliveryLocation.latitude,
+                longitude: deliveryLocation.longitude,
+                title: 'Delivery Partner',
+              },
+              {
+                latitude: customerLocation.latitude,
+                longitude: customerLocation.longitude,
+                title: 'Your Location',
+              },
+            ]}
+          />
         </View>
 
-        {/* Restaurant Info */}
-        <View style={styles.restaurantCard}>
-          <View style={styles.restaurantInfo}>
-            <View>
-              <Text style={styles.restaurantName}>{order.vendorName || 'Restaurant'}</Text>
-              <Text style={styles.restaurantAddress}>123 Food Street, City Center</Text>
-            </View>
-            <View style={styles.driverInfo}>
-              <Text style={styles.driverName}>Rajesh Kumar</Text>
-              <Text style={styles.driverTitle}>Delivery Partner</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Delivery Address */}
-        <View style={styles.addressCard}>
-          <View style={styles.addressHeader}>
-            <Text style={styles.addressTitle}>Delivery Address</Text>
-            <View style={styles.etaBadge}>
-              <Text style={styles.etaText}>25 min</Text>
-            </View>
-          </View>
-          <Text style={styles.addressText}>Apartment 4B, Sunrise Apartments, MG Road</Text>
-        </View>
-
-        {/* Progress Bar */}
+        {/* Progress Steps */}
         <View style={styles.progressCard}>
-          <Text style={styles.progressTitle}>Order Progress</Text>
           <View style={styles.progressContainer}>
-            {trackingSteps.map((step, index) => (
-              <View key={step.id} style={styles.progressStep}>
-                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: index <= currentStepIndex ? '#22c55e' : '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                  {getStatusIcon(step.id)}
+            {trackingSteps.map((step, index) => {
+              const isActive = index <= currentStepIndex;
+              const isCurrent = index === currentStepIndex;
+              return (
+                <View key={step.id} style={styles.progressStep}>
+                  <View style={[
+                    styles.progressIcon,
+                    isActive && styles.progressIconActive,
+                    isCurrent && styles.progressIconCurrent,
+                  ]}>
+                    {getStatusIcon(step.id, isActive)}
+                  </View>
+                  {index < trackingSteps.length - 1 && (
+                    <View style={[
+                      styles.progressLine,
+                      index < currentStepIndex && styles.progressLineActive,
+                    ]} />
+                  )}
                 </View>
-                {index < trackingSteps.length - 1 && (
-                  <View style={[styles.progressLine, { backgroundColor: index < currentStepIndex ? getStatusColor(step.id) : '#e5e7eb' }]} />
-                )}
-              </View>
-            ))}
+              );
+            })}
           </View>
           <View style={styles.progressLabels}>
             {trackingSteps.map((step, index) => (
-              <Text key={step.id} style={[styles.progressLabel, index <= currentStepIndex && styles.activeLabel]}>
+              <Text key={step.id} style={[
+                styles.progressLabel,
+                index <= currentStepIndex && styles.activeLabel,
+              ]}>
                 {step.label}
               </Text>
             ))}
           </View>
         </View>
 
-        {/* Map Section */}
-        <View style={styles.mapCard}>
-          <Text style={styles.mapTitle}>Live Tracking</Text>
-          <View style={styles.mapContainer}>
-            <MapView
-              style={styles.map}
-              initialRegion={shopLocation}
-              showsUserLocation={true}
-              showsMyLocationButton={false}
-            >
-              <Marker
-                coordinate={shopLocation}
-                title={order.vendorName || "Restaurant"}
-                description="Your order is being prepared here"
-                pinColor="green"
-              />
-              <Marker
-                coordinate={deliveryLocation}
-                title="Rajesh Kumar"
-                description="Delivery Partner"
-                pinColor="blue"
-              />
-              <Marker
-                coordinate={customerLocation}
-                title="Delivery Address"
-                description="Your location"
-                pinColor="red"
-              />
-            </MapView>
+        {/* Restaurant & Rider Info */}
+        <View style={styles.infoCard}>
+          <View style={styles.infoRow}>
+            <View style={styles.infoSection}>
+              <Ionicons name="restaurant" size={20} color="#22c55e" />
+              <View style={styles.infoText}>
+                <Text style={styles.infoLabel}>{order.vendorName || 'Restaurant'}</Text>
+                <Text style={styles.infoSubtext}>Preparing your order</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.callBtn}>
+              <Ionicons name="call" size={18} color="#22c55e" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.infoDivider} />
+          <View style={styles.infoRow}>
+            <View style={styles.infoSection}>
+              <Ionicons name="bicycle" size={20} color="#8b5cf6" />
+              <View style={styles.infoText}>
+                <Text style={styles.infoLabel}>{riderInfo?.riderName || 'Assigning rider...'}</Text>
+                <Text style={styles.infoSubtext}>Delivery Partner</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.callBtn}>
+              <Ionicons name="call" size={18} color="#8b5cf6" />
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Current Status */}
-        <View style={styles.statusCard}>
-          <View style={styles.statusHeader}>
-            <Text style={styles.statusTitle}>Current Status</Text>
-            <Text style={[styles.statusText, { color: getStatusColor(orderStatus) }]}>
-              {trackingSteps[currentStepIndex]?.label || order.status}
-            </Text>
+        {/* Delivery Address */}
+        <View style={styles.addressCard}>
+          <View style={styles.addressIcon}>
+            <Ionicons name="location" size={20} color="#ef4444" />
           </View>
-          <Text style={styles.statusDescription}>
-            Your order is being prepared by the restaurant chef. Estimated delivery time is 25 minutes.
-          </Text>
+          <View style={styles.addressContent}>
+            <Text style={styles.addressLabel}>Delivering to</Text>
+            <Text style={styles.addressText}>Home • 123 Main Street, Mumbai</Text>
+          </View>
         </View>
 
-        {/* Call Driver Button */}
-        <TouchableOpacity style={styles.callButton}>
-          <Text style={styles.callButtonText}>Call Driver</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        <View style={{ height: 30 }} />
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flex: 1,
-    backgroundColor: AppTheme.Colors.background,
-  },
   container: {
     flex: 1,
-    paddingBottom: 20,
+    backgroundColor: '#f8fafc',
+  },
+  scrollContainer: {
+    flex: 1,
   },
   header: {
-    padding: 20,
-    paddingTop: 60,
-    backgroundColor: AppTheme.Colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 50,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#22c55e',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerContent: {
+    flex: 1,
+    marginLeft: 12,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: AppTheme.Colors.white,
-    marginBottom: 5,
+    color: '#ffffff',
   },
-  headerSubtitle: {
-    fontSize: 16,
-    color: AppTheme.Colors.white + '80',
-  },
-  restaurantCard: {
-    margin: 16,
-    padding: 16,
-    backgroundColor: AppTheme.Colors.white,
-    borderRadius: 12,
-    shadowColor: AppTheme.Colors.text,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  restaurantInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  restaurantName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: AppTheme.Colors.text,
-    marginBottom: 5,
-  },
-  restaurantAddress: {
-    fontSize: 14,
-    color: AppTheme.Colors.textLight,
-  },
-  driverInfo: {
-    alignItems: 'flex-end',
-  },
-  driverName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: AppTheme.Colors.text,
-    marginBottom: 2,
-  },
-  driverTitle: {
+  orderId: {
     fontSize: 12,
-    color: AppTheme.Colors.textLight,
-  },
-  addressCard: {
-    margin: 16,
-    marginTop: 0,
-    padding: 16,
-    backgroundColor: AppTheme.Colors.white,
-    borderRadius: 12,
-    shadowColor: AppTheme.Colors.text,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  addressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  addressTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: AppTheme.Colors.text,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 2,
   },
   etaBadge: {
-    backgroundColor: AppTheme.Colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  etaText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: AppTheme.Colors.white,
-  },
-  addressText: {
-    fontSize: 14,
-    color: AppTheme.Colors.textLight,
-  },
-  mapCard: {
-    margin: 16,
-    marginTop: 0,
-    padding: 16,
-    backgroundColor: AppTheme.Colors.white,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 12,
-    shadowColor: AppTheme.Colors.text,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    alignItems: 'center',
   },
-  mapTitle: {
-    fontSize: 16,
+  etaNumber: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#22c55e',
+  },
+  etaLabel: {
+    fontSize: 10,
+    color: '#64748b',
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22c55e',
+    paddingVertical: 12,
+    gap: 8,
+  },
+  successText: {
+    fontSize: 15,
     fontWeight: '600',
-    color: AppTheme.Colors.text,
-    marginBottom: 12,
+    color: '#ffffff',
   },
   mapContainer: {
-    height: 200,
-    borderRadius: 8,
-    overflow: 'hidden',
+    height: 360,
+    backgroundColor: '#e2e8f0',
   },
   map: {
     flex: 1,
   },
   progressCard: {
-    margin: 16,
-    marginTop: 0,
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: -24,
+    borderRadius: 16,
     padding: 16,
-    backgroundColor: AppTheme.Colors.white,
-    borderRadius: 12,
-    shadowColor: AppTheme.Colors.text,
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  progressTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: AppTheme.Colors.text,
-    marginBottom: 20,
+    shadowRadius: 12,
+    elevation: 8,
   },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   progressStep: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   progressIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e2e8f0',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  progressIconText: {
-    fontSize: 16,
+  progressIconActive: {
+    backgroundColor: '#22c55e',
+  },
+  progressIconCurrent: {
+    backgroundColor: '#22c55e',
+    borderWidth: 3,
+    borderColor: '#bbf7d0',
   },
   progressLine: {
-    flex: 1,
-    height: 2,
-    marginHorizontal: 8,
+    width: 24,
+    height: 3,
+    backgroundColor: '#e2e8f0',
+    marginHorizontal: 4,
+  },
+  progressLineActive: {
+    backgroundColor: '#22c55e',
   },
   progressLabels: {
     flexDirection: 'row',
@@ -470,58 +435,99 @@ const styles = StyleSheet.create({
   },
   progressLabel: {
     fontSize: 10,
-    color: AppTheme.Colors.textLight,
+    color: '#94a3b8',
     textAlign: 'center',
     flex: 1,
+    lineHeight: 14,
   },
   activeLabel: {
-    color: AppTheme.Colors.text,
+    color: '#1e293b',
     fontWeight: '600',
   },
-  statusCard: {
-    margin: 16,
-    marginTop: 0,
-    padding: 16,
-    backgroundColor: AppTheme.Colors.white,
-    borderRadius: 12,
-    shadowColor: AppTheme.Colors.text,
+  infoCard: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
     elevation: 3,
   },
-  statusHeader: {
+  infoRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  infoSection: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    flex: 1,
+    gap: 12,
   },
-  statusTitle: {
-    fontSize: 16,
+  infoText: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 15,
     fontWeight: '600',
-    color: AppTheme.Colors.text,
+    color: '#1e293b',
   },
-  statusText: {
-    fontSize: 14,
-    fontWeight: '600',
+  infoSubtext: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
   },
-  statusDescription: {
-    fontSize: 14,
-    color: AppTheme.Colors.textLight,
-    lineHeight: 20,
+  infoDivider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 10,
   },
-  callButton: {
-    margin: 16,
-    marginTop: 0,
-    backgroundColor: AppTheme.Colors.primary,
-    padding: 16,
-    borderRadius: 12,
+  callBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0fdf4',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  callButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: AppTheme.Colors.white,
+  addressCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  addressIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fef2f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  addressContent: {
+    flex: 1,
+  },
+  addressLabel: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  addressText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginTop: 2,
   },
 });
 

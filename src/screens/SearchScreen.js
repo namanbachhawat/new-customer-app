@@ -1,5 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -12,7 +12,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
 import api from '../services/api';
 import searchService from '../services/searchService';
@@ -22,6 +21,7 @@ const SearchScreen = ({ navigation, route }) => {
   const [results, setResults] = useState({ vendors: [], items: [] });
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
+  const searchInputRef = useRef(null);
 
   const { searchQuery: initialQuery, category } = route.params || {};
 
@@ -49,6 +49,32 @@ const SearchScreen = ({ navigation, route }) => {
       performSearch('', categoryId);
     }
   }, [initialQuery, category]);
+
+  // Auto-focus search input when screen mounts (with small delay for smooth animation)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInputRef.current && !initialQuery && !category) {
+        searchInputRef.current.focus();
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Debounced live search - search as user types
+  useEffect(() => {
+    // Don't search if query is empty and no category selected
+    if (!searchQuery.trim() && !selectedCategory) {
+      setResults({ vendors: [], items: [] });
+      return;
+    }
+
+    // Debounce: wait 300ms after user stops typing
+    const debounceTimer = setTimeout(() => {
+      performSearch(searchQuery, selectedCategory);
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery, selectedCategory]);
 
 
   const performSearch = async (query = searchQuery, categoryFilter = selectedCategory) => {
@@ -151,7 +177,8 @@ const SearchScreen = ({ navigation, route }) => {
     try {
       const response = await api.getCart();
       if (response.success) {
-        setCart(response.cart);
+        // Deep clone to force React re-render
+        setCart(JSON.parse(JSON.stringify(response.cart)));
       }
     } catch (error) {
       console.error('Failed to load cart:', error);
@@ -190,7 +217,8 @@ const SearchScreen = ({ navigation, route }) => {
         item.vendorName
       );
       if (response.success) {
-        setCart(response.cart);
+        // Deep clone to force React re-render
+        setCart(JSON.parse(JSON.stringify(response.cart)));
         // UI updates automatically with +/- controls
       }
     } catch (error) {
@@ -202,10 +230,10 @@ const SearchScreen = ({ navigation, route }) => {
     try {
       if (quantity <= 0) {
         const response = await api.removeFromCart(restaurantId, itemId);
-        if (response.success) setCart(response.cart);
+        if (response.success) setCart(JSON.parse(JSON.stringify(response.cart)));
       } else {
         const response = await api.updateCartItem(restaurantId, itemId, quantity);
-        if (response.success) setCart(response.cart);
+        if (response.success) setCart(JSON.parse(JSON.stringify(response.cart)));
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to update quantity');
@@ -269,7 +297,7 @@ const SearchScreen = ({ navigation, route }) => {
     return (
       <Card style={styles.resultCard}>
         <View style={styles.itemContent}>
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100' }} style={styles.itemImage} />
+          <Image source={{ uri: item.image }} style={styles.itemImage} />
           <CardContent style={styles.itemInfo}>
             <Text style={styles.itemName}>{item.name}</Text>
             <Text style={styles.itemVendor}>{item.vendorName}</Text>
@@ -292,12 +320,13 @@ const SearchScreen = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
           ) : (
-            <Button
-              title="Add"
-              onPress={() => handleAddToCart(item)}
-              size="small"
+            <TouchableOpacity
               style={styles.addButton}
-            />
+              onPress={() => handleAddToCart(item)}
+            >
+              <Ionicons name="add" size={14} color="#ffffff" />
+              <Text style={styles.addButtonText}>Add</Text>
+            </TouchableOpacity>
           )}
         </View>
       </Card>
@@ -320,17 +349,30 @@ const SearchScreen = ({ navigation, route }) => {
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#94a3b8" style={styles.searchIcon} />
         <TextInput
+          ref={searchInputRef}
           style={styles.searchInput}
           placeholder="Search for food, drinks, vendors..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           onSubmitEditing={handleSearch}
-          placeholderTextColor="#64748b"
+          placeholderTextColor="#94a3b8"
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-          <Ionicons name="search-outline" size={20} color="#64748b" />
-        </TouchableOpacity>
+        {searchQuery.length > 0 && (
+          <TouchableOpacity
+            style={styles.clearButton}
+            onPress={() => {
+              setSearchQuery('');
+              searchInputRef.current?.focus();
+            }}
+          >
+            <Ionicons name="close-circle" size={20} color="#94a3b8" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -448,30 +490,29 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f1f5f9',
     marginHorizontal: 16,
     marginVertical: 12,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  searchIcon: {
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     color: '#1e293b',
-    paddingVertical: 8,
+    paddingVertical: 14,
+  },
+  clearButton: {
+    padding: 8,
   },
   searchButton: {
     padding: 8,
-  },
-  searchIcon: {
-    fontSize: 18,
-    color: '#64748b',
   },
   content: {
     flex: 1,
@@ -562,7 +603,7 @@ const styles = StyleSheet.create({
   vendorOffers: {
     fontSize: 10,
     backgroundColor: '#dcfce7',
-    color: '#16a34a',
+    color: '#22c55e',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -605,8 +646,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#22c55e',
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 4,
+  },
+  addButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   noResults: {
     alignItems: 'center',

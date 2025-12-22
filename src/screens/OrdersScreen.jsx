@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, CardContent } from '../components/Card';
 import orderService from '../services/orderService';
 
 // Helper function to format order state for display
@@ -33,14 +33,17 @@ const formatOrderState = (state) => {
   return stateMap[state] || state || 'Unknown';
 };
 
-// Helper to format date
-const formatDate = (dateString) => {
+// Helper to format date with time
+const formatDateTime = (dateString) => {
   if (!dateString) return 'Recently';
   try {
-    return new Date(dateString).toLocaleDateString('en-IN', {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      month: 'long',
       day: 'numeric',
-      month: 'short',
-      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
     });
   } catch {
     return 'Recently';
@@ -51,6 +54,7 @@ const OrdersScreen = ({ navigation }) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [ratings, setRatings] = useState({}); // Store food & delivery ratings
 
   useEffect(() => {
     loadOrders();
@@ -58,31 +62,27 @@ const OrdersScreen = ({ navigation }) => {
 
   const loadOrders = async () => {
     try {
-      console.log('[OrdersScreen] Loading orders from backend...');
       const response = await orderService.listOrders();
-      console.log('[OrdersScreen] Received orders:', response?.length || 0);
-
-      // Transform backend response to match UI structure
       const transformedOrders = (response || []).map(order => ({
         id: order.orderId || order.orderNumber,
         vendorName: order.vendor?.vendorName || order.vendor?.branchName || 'Restaurant',
+        vendorLocation: order.vendor?.area || order.vendor?.city || '',
+        vendorImage: order.vendor?.image || 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=100',
         status: formatOrderState(order.orderState),
         total: order.pricing?.totalAmount || 0,
-        date: formatDate(order.orderPlacedAt),
+        date: formatDateTime(order.orderPlacedAt),
         items: (order.items || []).map(item => ({
           name: item.name,
           quantity: item.quantity,
           price: item.unitPrice || item.subtotal,
         })),
-        // Keep original data for navigation
         _original: order,
       }));
 
-      // Sort by orderPlacedAt date (newest first)
       transformedOrders.sort((a, b) => {
         const dateA = new Date(a._original.orderPlacedAt || 0);
         const dateB = new Date(b._original.orderPlacedAt || 0);
-        return dateB - dateA; // Descending order (newest first)
+        return dateB - dateA;
       });
 
       setOrders(transformedOrders);
@@ -100,62 +100,132 @@ const OrdersScreen = ({ navigation }) => {
     setRefreshing(false);
   };
 
-  const getStatusColor = (status) => {
-    switch (status.toLowerCase()) {
-      case 'delivered':
-        return '#22c55e';
-      case 'confirmed':
-        return '#3b82f6';
-      case 'preparing':
-        return '#f59e0b';
-      case 'cancelled':
-        return '#ef4444';
-      default:
-        return '#64748b';
-    }
+  const handleRating = (orderId, type, value) => {
+    setRatings(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [type]: value,
+      }
+    }));
+    // TODO: Send rating to backend
   };
 
-  const renderOrderItem = ({ item }) => (
-    <TouchableOpacity onPress={() => navigation.navigate('OrderDetails', { order: item })}>
-      <Card style={styles.orderCard}>
-        <CardContent style={styles.orderContent}>
-          <View style={styles.orderHeader}>
-            <View style={styles.vendorInfo}>
-              <Text style={styles.vendorName}>{item.vendorName}</Text>
-              <Text style={styles.orderId}>Order #{item.id}</Text>
-            </View>
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-              <Text style={styles.statusText}>{item.status}</Text>
-            </View>
-          </View>
+  const handleReorder = (order) => {
+    // Navigate to vendor screen or add items to cart
+    navigation.navigate('OrderDetails', { order, reorder: true });
+  };
 
-          <View style={styles.itemsList}>
-            {item.items.slice(0, 2).map((orderItem, index) => (
-              <Text key={index} style={styles.itemText}>
-                {orderItem.quantity}x {orderItem.name}
-              </Text>
-            ))}
-            {item.items.length > 2 && (
-              <Text style={styles.moreItemsText}>
-                +{item.items.length - 2} more items
-              </Text>
+  const getStatusStyle = (status) => {
+    const isDelivered = status.toLowerCase() === 'delivered';
+    const isCancelled = status.toLowerCase() === 'cancelled';
+    return {
+      color: isDelivered ? '#22c55e' : isCancelled ? '#ef4444' : '#64748b',
+    };
+  };
+
+  const renderStars = (orderId, type, currentRating = 0) => {
+    const rating = ratings[orderId]?.[type] || currentRating;
+    return (
+      <View style={styles.starsRow}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <TouchableOpacity
+            key={star}
+            onPress={() => handleRating(orderId, type, star)}
+            style={styles.starButton}
+          >
+            <Ionicons
+              name={star <= rating ? 'star' : 'star-outline'}
+              size={22}
+              color={star <= rating ? '#fbbf24' : '#d1d5db'}
+            />
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  const renderOrderCard = (order) => {
+    const isDelivered = order.status.toLowerCase() === 'delivered';
+
+    return (
+      <View key={order.id} style={styles.orderCard}>
+        {/* Restaurant Header */}
+        <TouchableOpacity
+          style={styles.restaurantHeader}
+          onPress={() => navigation.navigate('OrderDetails', { order })}
+        >
+          <Image
+            source={{ uri: order.vendorImage }}
+            style={styles.restaurantImage}
+          />
+          <View style={styles.restaurantInfo}>
+            <Text style={styles.restaurantName}>{order.vendorName}</Text>
+            {order.vendorLocation && (
+              <Text style={styles.restaurantLocation}>{order.vendorLocation}</Text>
             )}
           </View>
-
-          <View style={styles.orderFooter}>
-            <Text style={styles.totalAmount}>₹{item.total}</Text>
-            <Text style={styles.orderDate}>{item.date}</Text>
+          <View style={styles.statusContainer}>
+            <Text style={[styles.statusText, getStatusStyle(order.status)]}>
+              {order.status}
+            </Text>
+            {isDelivered && (
+              <Ionicons name="checkmark-circle" size={18} color="#22c55e" style={{ marginLeft: 4 }} />
+            )}
           </View>
-        </CardContent>
-      </Card>
-    </TouchableOpacity>
-  );
+        </TouchableOpacity>
+
+        {/* Order Items */}
+        <View style={styles.itemsSection}>
+          {order.items.map((item, index) => (
+            <View key={index} style={styles.itemRow}>
+              <Text style={styles.itemQuantity}>{item.quantity}x</Text>
+              <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Rating Section - Only for delivered orders */}
+        {isDelivered && (
+          <View style={styles.ratingSection}>
+            <View style={styles.ratingColumn}>
+              <Text style={styles.ratingLabel}>Your Food Rating</Text>
+              {renderStars(order.id, 'food')}
+            </View>
+            <View style={styles.ratingDivider} />
+            <View style={styles.ratingColumn}>
+              <Text style={styles.ratingLabel}>Delivery Rating</Text>
+              {renderStars(order.id, 'delivery')}
+            </View>
+          </View>
+        )}
+
+        {/* Reorder Button */}
+        {isDelivered && (
+          <TouchableOpacity
+            style={styles.reorderButton}
+            onPress={() => handleReorder(order)}
+          >
+            <Text style={styles.reorderText}>REORDER</Text>
+            <Ionicons name="chevron-forward" size={18} color="#f97316" />
+          </TouchableOpacity>
+        )}
+
+        {/* Order Footer */}
+        <View style={styles.orderFooter}>
+          <Text style={styles.orderDate}>Ordered: {order.date}</Text>
+          <Text style={styles.orderTotal}>Bill Total: ₹{order.total}</Text>
+        </View>
+      </View>
+    );
+  };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading orders...</Text>
+          <Ionicons name="restaurant-outline" size={48} color="#22c55e" />
+          <Text style={styles.loadingText}>Loading your orders...</Text>
         </View>
       </SafeAreaView>
     );
@@ -169,33 +239,42 @@ const OrdersScreen = ({ navigation }) => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#64748b" />
+          <Ionicons name="arrow-back" size={24} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>My Orders</Text>
-        <View style={styles.headerRight} />
+        <View style={{ width: 32 }} />
+      </View>
+
+      {/* Section Title */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>PAST ORDERS</Text>
       </View>
 
       <ScrollView
         style={styles.content}
+        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#22c55e']} />
         }
       >
         {orders.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="cube-outline" size={48} color="#cbd5e1" />
+            <Ionicons name="receipt-outline" size={64} color="#d1d5db" />
             <Text style={styles.emptyTitle}>No orders yet</Text>
             <Text style={styles.emptySubtitle}>
               Your order history will appear here once you place your first order
             </Text>
+            <TouchableOpacity
+              style={styles.browseButton}
+              onPress={() => navigation.navigate('Home')}
+            >
+              <Text style={styles.browseButtonText}>Browse Restaurants</Text>
+            </TouchableOpacity>
           </View>
         ) : (
-          orders.map((order) => (
-            <View key={order.id}>
-              {renderOrderItem({ item: order })}
-            </View>
-          ))
+          orders.map(renderOrderCard)
         )}
+        <View style={{ height: 30 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -204,46 +283,58 @@ const OrdersScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f5f5f5',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#e5e5e5',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backButtonText: {
-    fontSize: 18,
-    color: '#64748b',
+    padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#1e293b',
+    letterSpacing: 0.5,
   },
-  headerRight: {
-    width: 40,
+  helpButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f97316',
+  },
+  helpText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#f97316',
+  },
+  sectionHeader: {
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+    letterSpacing: 0.5,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 16,
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 16,
   },
   loadingText: {
     fontSize: 16,
@@ -253,192 +344,162 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 100,
-  },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+    paddingHorizontal: 32,
   },
   emptyTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#1e293b',
+    marginTop: 20,
     marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
-    lineHeight: 24,
-    maxWidth: 280,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  browseButton: {
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 8,
+  },
+  browseButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   orderCard: {
-    marginVertical: 8,
-    padding: 0,
+    backgroundColor: '#ffffff',
+    marginHorizontal: 12,
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  orderContent: {
-    padding: 16,
-  },
-  orderHeader: {
+  restaurantHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
   },
-  vendorInfo: {
+  restaurantImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+  },
+  restaurantInfo: {
     flex: 1,
+    marginLeft: 12,
   },
-  vendorName: {
+  restaurantName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1e293b',
-    marginBottom: 4,
   },
-  orderId: {
-    fontSize: 12,
+  restaurantLocation: {
+    fontSize: 13,
     color: '#64748b',
+    marginTop: 2,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statusText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  itemsList: {
-    marginBottom: 12,
+  itemsSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  itemText: {
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  itemQuantity: {
     fontSize: 14,
     color: '#64748b',
-    marginBottom: 2,
+    width: 28,
   },
-  moreItemsText: {
+  itemName: {
+    fontSize: 14,
+    color: '#1e293b',
+    flex: 1,
+  },
+  ratingSection: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#f3f4f6',
+    paddingVertical: 14,
+    marginHorizontal: 16,
+  },
+  ratingColumn: {
+    flex: 1,
+  },
+  ratingDivider: {
+    width: 1,
+    backgroundColor: '#e5e5e5',
+    marginHorizontal: 16,
+  },
+  ratingLabel: {
     fontSize: 12,
-    color: '#94a3b8',
-    fontStyle: 'italic',
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  starsRow: {
+    flexDirection: 'row',
+    gap: 2,
+  },
+  starButton: {
+    padding: 2,
+  },
+  reorderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff7ed',
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+  },
+  reorderText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#f97316',
+    letterSpacing: 0.5,
   },
   orderFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  totalAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#22c55e',
+    borderTopColor: '#f3f4f6',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fafafa',
   },
   orderDate: {
     fontSize: 12,
     color: '#64748b',
   },
-  orderStatus: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 8,
-  },
-  itemsCard: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 12,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  itemName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1e293b',
-    flex: 1,
-  },
-  itemDetails: {
+  orderTotal: {
     fontSize: 12,
     color: '#64748b',
-    marginRight: 8,
-  },
-  itemTotal: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#22c55e',
-  },
-  summaryCard: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-  summaryValue: {
-    fontSize: 14,
-    color: '#1e293b',
-    fontWeight: '600',
-  },
-  totalRow: {
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    paddingTop: 12,
-    marginTop: 8,
-  },
-  totalLabel: {
-    fontSize: 16,
-    color: '#1e293b',
-    fontWeight: 'bold',
-  },
-  totalValue: {
-    fontSize: 16,
-    color: '#22c55e',
-    fontWeight: 'bold',
-  },
-  trackButton: {
-    backgroundColor: '#22c55e',
-    marginHorizontal: 16,
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  trackButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
   },
 });
 

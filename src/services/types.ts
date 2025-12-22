@@ -264,21 +264,28 @@ export interface CheckoutRequest {
 }
 
 export interface VendorInfo {
-    vendorId: string;
+    vendorId: number;  // Changed from string to number per OpenAPI spec
     vendorName: string;
     vendorBranchId: number;
     branchName: string;
+    branchPhone?: string;  // New field from OpenAPI spec
+    branchAddress?: string;  // New field from OpenAPI spec
     estimatedPrepTime: number;
     isAcceptingOrders: boolean;
 }
 
 export interface CheckoutItem {
+    orderItemId?: string;  // New field from OpenAPI spec
     menuItemId: number;
     name: string;
+    description?: string;  // New field from OpenAPI spec
+    imageUrl?: string;  // New field from OpenAPI spec
+    categoryName?: string;  // New field from OpenAPI spec
     quantity: number;
     unitPrice: number;
     subtotal: number;
     customizations?: Record<string, any>;
+    specialInstructions?: string;  // New field from OpenAPI spec
     isAvailable: boolean;
     stockQuantity?: number;
 }
@@ -317,6 +324,12 @@ export interface PricingDetails {
     gstDetails?: GstDetails;
     totalAmount: number;
     currency: string;
+    // Display labels from OpenAPI spec
+    itemTotalLabel?: string;
+    deliveryLabel?: string;
+    taxesLabel?: string;
+    discountLabel?: string;
+    totalLabel?: string;
 }
 
 export interface DeliveryEstimate {
@@ -361,6 +374,10 @@ export interface CheckoutResponse {
     errors: CheckoutError[];
 }
 
+/**
+ * @deprecated Use CreateOrderFromCheckoutRequest instead
+ * The OpenAPI spec now uses POST /api/v1/orders with CreateOrderFromCheckoutRequest
+ */
 export interface CommitCheckoutRequest {
     checkoutSessionId: string;
     paymentTransactionId?: string;

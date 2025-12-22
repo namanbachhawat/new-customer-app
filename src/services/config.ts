@@ -16,6 +16,8 @@ export const ENDPOINTS = {
     VENDOR_MENU: (branchId: number) => `/api/v1/search/vendors/${branchId}/menu`,
 
     // Vendor & Branch
+    VENDORS: '/api/v1/vendors',  // List all vendors
+    BRANCHES: '/api/v1/branches', // List all branches
     VENDOR: (vendorId: number) => `/api/v1/vendors/${vendorId}`,
     BRANCH: (branchId: number) => `/api/v1/branches/${branchId}`,
     BRANCH_MENU: (branchId: number) => `/api/v1/menu-items/branches/${branchId}`,
@@ -23,9 +25,9 @@ export const ENDPOINTS = {
 
     // Checkout
     CHECKOUT_CALCULATE: '/api/v1/checkout/calculate',
-    CHECKOUT_COMMIT: '/api/v1/checkout/commit',
     CHECKOUT_SESSION: (sessionId: string) => `/api/v1/checkout/session/${sessionId}`,
     CHECKOUT_HEALTH: '/api/v1/checkout/health',
+    // Note: Order creation uses POST /api/v1/orders (ORDERS endpoint) per OpenAPI spec
 
     // Orders
     ORDERS: '/api/v1/orders',

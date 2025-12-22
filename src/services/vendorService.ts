@@ -40,6 +40,26 @@ class VendorService {
     }
 
     /**
+     * List all branches (no filtering)
+     */
+    async listBranches(params?: { page?: number; size?: number }): Promise<BranchResponse[]> {
+        return apiClient.get<BranchResponse[]>(ENDPOINTS.BRANCHES, {
+            page: params?.page || 0,
+            size: params?.size || 100,
+        });
+    }
+
+    /**
+     * List all vendors (no filtering)
+     */
+    async listVendors(params?: { page?: number; size?: number }): Promise<VendorResponse[]> {
+        return apiClient.get<VendorResponse[]>(ENDPOINTS.VENDORS, {
+            page: params?.page || 0,
+            size: params?.size || 100,
+        });
+    }
+
+    /**
      * Get single menu item details
      */
     async getMenuItem(menuItemId: number): Promise<MenuItemResponse> {

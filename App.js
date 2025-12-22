@@ -1,8 +1,7 @@
+import auth from '@react-native-firebase/auth';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
 import { useEffect } from 'react';
 import { AppRegistry } from 'react-native';
 
@@ -29,7 +28,7 @@ export default function App() {
   // TODO: Backend should support Firebase UIDs directly, or we need a user registration API
   // For now, use a consistent development UUID when authenticated
   useEffect(() => {
-    const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+    const unsubscribe = auth().onAuthStateChanged((user) => {
       if (user) {
         console.log('[App] Auth state restored, Firebase user:', user.uid);
         // Use a consistent UUID format that the backend accepts

@@ -6,6 +6,7 @@ export { checkoutService } from './checkoutService';
 export { API_CONFIG, ENDPOINTS, getDefaultHeaders } from './config';
 export { menuService } from './menuService';
 export { orderService } from './orderService';
+export { RAZORPAY_CONFIG, razorpayService } from './razorpayService';
 export { searchService } from './searchService';
 export { trackingService } from './trackingService';
 export { vendorService } from './vendorService';
@@ -22,4 +23,5 @@ export default {
     checkoutService: require('./checkoutService').checkoutService,
     orderService: require('./orderService').orderService,
     trackingService: require('./trackingService').trackingService,
+    razorpayService: require('./razorpayService').razorpayService,
 };

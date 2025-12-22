@@ -66,66 +66,99 @@ const AddressSelectionModal = ({ visible, onClose, onSelectAddress, selectedAddr
     <Modal
       visible={visible}
       animationType="slide"
+      transparent={true}
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={24} color="#64748b" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Select Delivery Address</Text>
-          <View style={styles.headerRight} />
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+        <View style={styles.bottomSheet}>
+          {/* Handle Bar */}
+          <View style={styles.handleContainer}>
+            <View style={styles.handle} />
+          </View>
+
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Select Delivery Address</Text>
+            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+              <Ionicons name="close" size={24} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={addresses}
+            renderItem={renderAddress}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={styles.addressesList}
+            style={styles.addressList}
+          />
+
+          <SafeAreaView edges={['bottom']}>
+            <TouchableOpacity style={styles.addAddressButton} onPress={() => Alert.alert('Add Address', 'Add new address feature coming soon!')}>
+              <Ionicons name="add-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text style={styles.addAddressText}>Add New Address</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
         </View>
-
-        <FlatList
-          data={addresses}
-          renderItem={renderAddress}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.addressesList}
-        />
-
-        <TouchableOpacity style={styles.addAddressButton} onPress={() => Alert.alert('Add Address', 'Add new address feature coming soon!')}>
-          <Text style={styles.addAddressText}>+ Add New Address</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  modalOverlay: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  bottomSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 20,
+  },
+  handleContainer: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 2,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#f1f5f9',
   },
   closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 18,
-    color: '#64748b',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#1e293b',
   },
-  headerRight: {
-    width: 40,
+  addressList: {
+    maxHeight: 300,
   },
   addressesList: {
     padding: 16,
@@ -133,31 +166,24 @@ const styles = StyleSheet.create({
   addressItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   selectedAddressItem: {
+    backgroundColor: '#f0fdf4',
     borderWidth: 2,
     borderColor: '#22c55e',
   },
   addressIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#dcfce7',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-  },
-  addressIconText: {
-    fontSize: 20,
+    marginRight: 14,
   },
   addressDetails: {
     flex: 1,
@@ -171,27 +197,17 @@ const styles = StyleSheet.create({
   addressText: {
     fontSize: 14,
     color: '#64748b',
-  },
-  checkmark: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#22c55e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkmarkText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
+    lineHeight: 20,
   },
   addAddressButton: {
+    flexDirection: 'row',
     backgroundColor: '#22c55e',
     marginHorizontal: 16,
-    marginBottom: 24,
-    borderRadius: 12,
+    marginBottom: 16,
+    borderRadius: 14,
     padding: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   addAddressText: {
     color: '#ffffff',

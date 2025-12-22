@@ -1,44 +1,48 @@
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '../components/Button';
-import { Card, CardContent } from '../components/Card';
 import { checkoutService } from '../services';
 import api from '../services/api';
 
 const CartScreen = ({ navigation }) => {
   const [cart, setCart] = useState({ items: [] });
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [couponCode, setCouponCode] = useState('');
-  const [showCouponInput, setShowCouponInput] = useState(false);
-  const [selectedRestaurants, setSelectedRestaurants] = useState(new Set());
-  const [checkoutData, setCheckoutData] = useState(null); // Store backend checkout response
+  const [showBillDetails, setShowBillDetails] = useState(false);
+  const [restaurantNote, setRestaurantNote] = useState('');
+  const [checkoutData, setCheckoutData] = useState(null);
 
   useEffect(() => {
     loadCart();
   }, []);
 
+  // Add focus listener to refresh cart when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadCart(); // Refresh cart when screen comes into focus
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
   const loadCart = async () => {
     try {
       const response = await api.getCart();
       if (response.success) {
-        setCart(response.cart);
-        // Initialize selected restaurants
-        const allRestaurants = new Set(response.cart.items.map(group => group.restaurantId));
-        setSelectedRestaurants(allRestaurants);
-
-        // Auto-fetch prices from backend when cart loads
+        setCart(JSON.parse(JSON.stringify(response.cart)));
         if (response.cart.items.length > 0) {
           fetchCheckoutPrices(response.cart.items);
         }
@@ -47,10 +51,10 @@ const CartScreen = ({ navigation }) => {
       Alert.alert('Error', 'Failed to load cart items');
     } finally {
       setRefreshing(false);
+      setInitialLoading(false);
     }
   };
 
-  // Auto-fetch real-time pricing from backend
   const fetchCheckoutPrices = async (cartItems = cart.items) => {
     if (!cartItems || cartItems.length === 0) {
       setCheckoutData(null);
@@ -72,14 +76,18 @@ const CartScreen = ({ navigation }) => {
           menuItemId: parseInt(item.menuItemId) || parseInt(item.id) || 1,
           quantity: item.quantity,
         })),
-        paymentMethod: 'GPAY',
+        paymentMethod: 'GPAY', // Hardcoded for testing
       };
-      console.log('[CartScreen] Auto-fetching prices...');
+
+      console.log('[CartScreen] Checkout request:', JSON.stringify(checkoutRequest, null, 2));
+      console.log('[CartScreen] Cart items:', JSON.stringify(restaurantGroup.items, null, 2));
+
       const response = await checkoutService.calculateCheckout(checkoutRequest);
-      console.log('[CartScreen] Prices fetched:', JSON.stringify(response.pricing, null, 2));
+      console.log('[CartScreen] Checkout response:', JSON.stringify(response, null, 2));
       setCheckoutData(response);
     } catch (error) {
       console.error('[CartScreen] Price fetch failed:', error);
+      console.error('[CartScreen] Error details:', error.message, error.status, error.details);
       setCheckoutData(null);
     }
   };
@@ -94,23 +102,11 @@ const CartScreen = ({ navigation }) => {
       removeItem(restaurantId, itemId);
       return;
     }
-
     try {
       const response = await api.updateCartItem(restaurantId, itemId, newQuantity);
       if (response.success && response.cart) {
-        // Update cart state with the new cart data
         setCart(response.cart);
-        fetchCheckoutPrices(response.cart.items); // Refresh prices
-
-        // Update selected restaurants based on new cart
-        const updatedRestaurants = new Set(response.cart.items.map(group => group.restaurantId));
-        setSelectedRestaurants(prevSelected => {
-          // Remove restaurants that are no longer in cart
-          const validRestaurants = new Set([...prevSelected].filter(id => updatedRestaurants.has(id)));
-          // Add all restaurants from updated cart
-          updatedRestaurants.forEach(id => validRestaurants.add(id));
-          return validRestaurants;
-        });
+        fetchCheckoutPrices(response.cart.items);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to update item quantity');
@@ -121,107 +117,28 @@ const CartScreen = ({ navigation }) => {
     try {
       const response = await api.removeFromCart(restaurantId, itemId);
       if (response.success && response.cart) {
-        // Update cart state with the new cart data
         setCart(response.cart);
-        fetchCheckoutPrices(response.cart.items); // Refresh prices
-
-        // Update selected restaurants based on new cart
-        const updatedRestaurants = new Set(response.cart.items.map(group => group.restaurantId));
-        setSelectedRestaurants(prevSelected => {
-          // Remove restaurants that are no longer in cart
-          const validRestaurants = new Set([...prevSelected].filter(id => updatedRestaurants.has(id)));
-          // Add all restaurants from updated cart
-          updatedRestaurants.forEach(id => validRestaurants.add(id));
-          return validRestaurants;
-        });
+        fetchCheckoutPrices(response.cart.items);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to remove item');
     }
   };
 
-  const clearRestaurantCart = async (restaurantId) => {
+  const applyCoupon = async () => {
+    if (!couponCode.trim()) return;
     try {
-      const response = await api.clearRestaurantCart(restaurantId);
+      const response = await api.applyCoupon(null, couponCode);
       if (response.success && response.cart) {
-        // Update cart state with the new cart data
-        setCart(response.cart);
-
-        // Update selected restaurants - remove the cleared restaurant
-        const newSelected = new Set(selectedRestaurants);
-        newSelected.delete(restaurantId);
-        setSelectedRestaurants(newSelected);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to clear restaurant cart');
-    }
-  };
-
-  const applyCoupon = async (restaurantId, code) => {
-    try {
-      const response = await api.applyCoupon(restaurantId, code);
-      if (response.success && response.cart) {
-        // Update cart state with the new cart data
         setCart(response.cart);
         Alert.alert('Success', 'Coupon applied successfully!');
         setCouponCode('');
-        setShowCouponInput(false);
       } else {
-        Alert.alert('Invalid Coupon', response.error);
+        Alert.alert('Invalid Coupon', response.error || 'Please try another code');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to apply coupon');
     }
-  };
-
-  const toggleRestaurantSelection = (restaurantId) => {
-    const newSelected = new Set(selectedRestaurants);
-    if (newSelected.has(restaurantId)) {
-      newSelected.delete(restaurantId);
-    } else {
-      newSelected.add(restaurantId);
-    }
-    setSelectedRestaurants(newSelected);
-  };
-
-  const getSelectedRestaurantsTotal = () => {
-    const selectedItems = cart.items.filter(group => selectedRestaurants.has(group.restaurantId));
-    // Use backend pricing if available
-    if (checkoutData?.pricing?.totalAmount) return checkoutData.pricing.totalAmount;
-    return selectedItems.reduce((total, group) => {
-      const subtotal = group.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      return total + subtotal + (group.deliveryFee || 0) + (subtotal * 0.05); // Including tax
-    }, 0);
-  };
-
-  const clearCart = async () => {
-    Alert.alert(
-      'Clear Cart',
-      'Are you sure you want to clear all items from your cart?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await api.clearCart();
-              if (response.success) {
-                // Reset cart state to empty cart structure
-                setCart({
-                  items: [],
-                  globalCoupon: null,
-                  deliveryAddress: null
-                });
-                setSelectedRestaurants(new Set());
-              }
-            } catch (error) {
-              Alert.alert('Error', 'Failed to clear cart');
-            }
-          },
-        },
-      ]
-    );
   };
 
   const handleCheckout = async () => {
@@ -229,18 +146,11 @@ const CartScreen = ({ navigation }) => {
       Alert.alert('Empty Cart', 'Please add items to your cart before checkout');
       return;
     }
-    if (selectedRestaurants.size === 0) {
-      Alert.alert('No Restaurants Selected', 'Please select at least one restaurant to checkout');
-      return;
-    }
-
-    const selectedItems = cart.items.filter(group => selectedRestaurants.has(group.restaurantId));
-    const restaurantGroup = selectedItems[0];
+    const restaurantGroup = cart.items[0];
     setLoading(true);
-
     try {
       const checkoutRequest = {
-        userId: '123e4567-e89b-12d3-a456-426614174000', // Use a valid UUID
+        userId: '123e4567-e89b-12d3-a456-426614174000',
         vendorBranchId: restaurantGroup.items[0]?.branchId || parseInt(restaurantGroup.restaurantId) || 5,
         deliveryAddress: cart.deliveryAddress || {
           addressLine1: '123 Main Street',
@@ -253,39 +163,21 @@ const CartScreen = ({ navigation }) => {
           menuItemId: parseInt(item.menuItemId) || parseInt(item.id) || 1,
           quantity: item.quantity,
         })),
-        paymentMethod: 'GPAY', // Hardcoded for now
+        paymentMethod: 'GPAY', // Hardcoded for testing
       };
-
-      console.log('[CartScreen] Checkout request:', JSON.stringify(checkoutRequest, null, 2));
       const response = await checkoutService.calculateCheckout(checkoutRequest);
-      console.log('[CartScreen] Checkout response:', JSON.stringify(response, null, 2));
-
       navigation.navigate('Payment', {
-        cart: selectedItems,
+        cart: cart.items,
         checkoutResponse: response,
       });
     } catch (error) {
-      console.error('[CartScreen] Checkout error:', error);
       Alert.alert('Checkout Error', error.message || 'Failed to calculate checkout.');
     } finally {
       setLoading(false);
     }
   };
 
-  const getTotalPrice = (restaurantGroup = null) => {
-    if (restaurantGroup) {
-      return restaurantGroup.items.reduce((total, item) => total + (item.price * item.quantity), 0);
-    }
-    return cart.items.reduce((total, group) =>
-      total + group.items.reduce((sum, item) => sum + (item.price * item.quantity), 0), 0);
-  };
-
-  const getTotalItems = () => {
-    return cart.items.reduce((total, group) => total + group.items.length, 0);
-  };
-
-  const calculateRestaurantTotal = (restaurantGroup) => {
-    // Use backend pricing if available
+  const getTotals = () => {
     if (checkoutData?.pricing) {
       return {
         subtotal: checkoutData.pricing.itemTotal || 0,
@@ -296,262 +188,274 @@ const CartScreen = ({ navigation }) => {
         total: checkoutData.pricing.totalAmount || 0
       };
     }
-    const subtotal = getTotalPrice(restaurantGroup);
-    const deliveryFee = restaurantGroup.deliveryFee || 0;
+    const subtotal = cart.items.reduce((total, group) =>
+      total + group.items.reduce((sum, item) => sum + (item.price * item.quantity), 0), 0);
+    const deliveryFee = cart.items[0]?.deliveryFee || 25;
     const tax = subtotal * 0.05;
-    let discount = 0;
-    if (restaurantGroup.coupons) {
-      restaurantGroup.coupons.forEach(coupon => {
-        if (coupon.type === 'restaurant' && subtotal >= coupon.minOrder) {
-          discount += subtotal * (coupon.discount / 100);
-        }
-      });
-    }
-    if (cart.globalCoupon && subtotal >= cart.globalCoupon.minOrder) {
-      discount += subtotal * (cart.globalCoupon.discount / 100);
-    }
     return {
-      subtotal: subtotal || 0,
+      subtotal,
       deliveryFee,
-      tax: tax || 0,
-      discount,
-      total: (subtotal + deliveryFee + tax - discount) || 0
+      tax,
+      platformFee: 5,
+      discount: 0,
+      total: subtotal + deliveryFee + tax + 5
     };
   };
 
-  const renderCartItem = ({ item, restaurantId }) => (
-    <Card style={styles.cartItem}>
-      <View style={styles.itemContent}>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1648192312898-838f9b322f47?w=100' }}
-          style={styles.itemImage}
-        />
-        <CardContent style={styles.itemDetails}>
-          <Text style={styles.itemName}>{item.name}</Text>
-          <Text style={styles.itemPrice}>₹{item.price}</Text>
-          {item.specialInstructions && (
-            <Text style={styles.specialInstructionsText}>Note: {item.specialInstructions}</Text>
-          )}
-          <View style={styles.quantityControls}>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => updateQuantity(restaurantId, item.id, item.quantity - 1)}
-            >
-              <Text style={styles.quantityButtonText}>-</Text>
-            </TouchableOpacity>
-            <Text style={styles.quantityText}>{item.quantity}</Text>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => updateQuantity(restaurantId, item.id, item.quantity + 1)}
-            >
-              <Text style={styles.quantityButtonText}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </CardContent>
-        <TouchableOpacity
-          style={styles.removeButton}
-          onPress={() => removeItem(restaurantId, item.id)}
-        >
-          <Text style={styles.removeButtonText}>✕</Text>
-        </TouchableOpacity>
-      </View>
-    </Card>
-  );
+  const totals = getTotals();
+  const restaurantGroup = cart.items[0];
+  const totalItems = cart.items.reduce((sum, g) => sum + g.items.reduce((s, i) => s + i.quantity, 0), 0);
 
-  const renderRestaurantSection = (restaurantGroup) => {
-    const totals = calculateRestaurantTotal(restaurantGroup);
-    const isSelected = selectedRestaurants.has(restaurantGroup.restaurantId);
-
+  // Show loading spinner during initial load
+  if (initialLoading) {
     return (
-      <View key={restaurantGroup.restaurantId} style={styles.restaurantSection}>
-        {/* Restaurant Header */}
-        <View style={styles.restaurantHeader}>
-          <TouchableOpacity
-            style={[styles.checkbox, isSelected && styles.checkboxSelected]}
-            onPress={() => toggleRestaurantSelection(restaurantGroup.restaurantId)}
-          >
-            {isSelected && <Text style={styles.checkboxText}>✓</Text>}
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#1e293b" />
           </TouchableOpacity>
-          <View style={styles.restaurantInfo}>
-            <Text style={[styles.restaurantName, styles.boldText]}>{restaurantGroup.restaurantName}</Text>
-            <Text style={styles.deliveryInfo}>
-              {restaurantGroup.deliveryTime} min • ₹{restaurantGroup.deliveryFee} delivery
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => clearRestaurantCart(restaurantGroup.restaurantId)}
-          >
-            <Text style={styles.clearText}>Clear</Text>
-          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Cart</Text>
+          <View style={{ width: 40 }} />
         </View>
-
-        {/* Items */}
-        <View style={styles.itemsContainer}>
-          {restaurantGroup.items.map((item, index) => (
-            <View key={item.id || index}>
-              {renderCartItem({ item, restaurantId: restaurantGroup.restaurantId })}
-            </View>
-          ))}
+        <View style={styles.loadingContainer}>
+          <Ionicons name="cart-outline" size={48} color="#22c55e" />
+          <Text style={styles.loadingText}>Loading cart...</Text>
         </View>
-
-        {/* Special Instructions */}
-        <View style={styles.specialInstructionsContainer}>
-          <TextInput
-            style={styles.instructionsInput}
-            placeholder="Restaurant instructions (e.g., no cutlery)"
-            value={restaurantGroup.specialInstructions}
-            onChangeText={(text) => {
-              // Update special instructions
-              const updatedCart = { ...cart };
-              const group = updatedCart.items.find(g => g.restaurantId === restaurantGroup.restaurantId);
-              group.specialInstructions = text;
-              setCart(updatedCart);
-            }}
-            multiline
-          />
-        </View>
-
-        {/* Restaurant Summary */}
-        <View style={styles.restaurantSummary}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Subtotal:</Text>
-            <Text style={styles.summaryValue}>₹{totals.subtotal}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Delivery Fee:</Text>
-            <Text style={styles.summaryValue}>₹{totals.deliveryFee}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>GST:</Text>
-            <Text style={styles.summaryValue}>₹{totals.tax.toFixed(2)}</Text>
-          </View>
-          {totals.platformFee > 0 && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Platform Fee:</Text>
-              <Text style={styles.summaryValue}>₹{totals.platformFee.toFixed(2)}</Text>
-            </View>
-          )}
-          {totals.discount > 0 && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Discount:</Text>
-              <Text style={[styles.summaryValue, styles.discountText]}>-₹{totals.discount.toFixed(2)}</Text>
-            </View>
-          )}
-          <View style={[styles.summaryRow, styles.totalRow]}>
-            <Text style={styles.totalLabel}>Total:</Text>
-            <Text style={styles.totalValue}>₹{totals.total.toFixed(2)}</Text>
-          </View>
-        </View>
-      </View>
+      </SafeAreaView>
     );
-  };
+  }
+
+  if (cart.items.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#1e293b" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Cart</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconContainer}>
+            <Ionicons name="cart-outline" size={80} color="#22c55e" />
+          </View>
+          <Text style={styles.emptyTitle}>Your cart is empty</Text>
+          <Text style={styles.emptySubtitle}>Looks like you haven't added anything to your cart yet</Text>
+          <TouchableOpacity style={styles.browseButton} onPress={() => navigation.navigate('Home')}>
+            <Text style={styles.browseButtonText}>Browse Restaurants</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* Header with restaurant info */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backButtonText}>←</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={24} color="#1e293b" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Cart</Text>
-        {cart.items.length > 0 && (
-          <TouchableOpacity style={styles.clearButton} onPress={clearCart}>
-            <Text style={styles.clearButtonText}>Clear</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerInfo}>
+          <Text style={styles.restaurantName} numberOfLines={1}>{restaurantGroup?.restaurantName || 'Cart'}</Text>
+          <Text style={styles.deliveryTime}>
+            <Ionicons name="time-outline" size={12} color="#64748b" /> {restaurantGroup?.deliveryTime || '20-25'} mins to Home
+          </Text>
+        </View>
+        <TouchableOpacity onPress={() => navigation.navigate('Home')}>
+          <Ionicons name="ellipsis-vertical" size={20} color="#64748b" />
+        </TouchableOpacity>
       </View>
 
-      {cart.items.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>🛒</Text>
-          <Text style={styles.emptyTitle}>Your cart is empty</Text>
-          <Text style={styles.emptySubtitle}>Add some delicious items to get started</Text>
-          <Button
-            title="Browse Restaurants"
-            onPress={() => navigation.navigate('Home')}
-            style={styles.browseButton}
-          />
-        </View>
-      ) : (
-        <>
-          <ScrollView
-            style={styles.cartList}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-          >
-            {/* Restaurant Count Header */}
-            {cart.items.length > 1 && (
-              <View style={styles.restaurantCountHeader}>
-                <Text style={styles.restaurantCountText}>
-                  {cart.items.length} restaurants • {getTotalItems()} items
-                </Text>
-              </View>
-            )}
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {/* Savings Banner */}
+        {totals.discount > 0 && (
+          <LinearGradient colors={['#dcfce7', '#f0fdf4']} style={styles.savingsBanner}>
+            <Ionicons name="gift" size={18} color="#22c55e" />
+            <Text style={styles.savingsText}>You saved ₹{totals.discount.toFixed(2)} on this order!</Text>
+          </LinearGradient>
+        )}
 
-            {cart.items && cart.items.map((restaurantGroup) => (
-              <View key={`restaurant-${restaurantGroup.restaurantId}`}>
-                {renderRestaurantSection(restaurantGroup)}
-              </View>
-            ))}
-
-            {/* Global Coupon Section - Positioned within scroll */}
-            {selectedRestaurants.size > 0 && (
-              <View style={styles.globalCouponSectionFixed}>
-                <Text style={styles.couponSectionTitle}>Apply Global Coupon</Text>
-                <View style={styles.couponInputContainer}>
-                  <TextInput
-                    style={styles.couponInput}
-                    placeholder="Enter coupon code"
-                    value={couponCode}
-                    onChangeText={setCouponCode}
-                  />
-                  <TouchableOpacity
-                    style={styles.applyCouponButton}
-                    onPress={() => applyCoupon(null, couponCode)}
-                  >
-                    <Text style={styles.applyCouponText}>Apply</Text>
-                  </TouchableOpacity>
+        {/* Cart Items */}
+        <View style={styles.itemsSection}>
+          {cart.items.map(group =>
+            group.items.map((item, index) => (
+              <View key={item.id || index} style={styles.cartItem}>
+                <View style={styles.itemLeft}>
+                  <View style={styles.vegIndicator}>
+                    <View style={styles.vegDot} />
+                  </View>
+                  <View style={styles.itemInfo}>
+                    <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
+                    <TouchableOpacity style={styles.editButton}>
+                      <Text style={styles.editText}>Edit</Text>
+                      <Ionicons name="chevron-down" size={12} color="#22c55e" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                {cart.globalCoupon && (
-                  <Text style={styles.appliedGlobalCoupon}>
-                    Applied: {cart.globalCoupon.code} (-{cart.globalCoupon.discount}%)
-                  </Text>
-                )}
+                <View style={styles.itemRight}>
+                  <View style={styles.quantityControls}>
+                    <TouchableOpacity
+                      style={styles.qtyBtn}
+                      onPress={() => updateQuantity(group.restaurantId, item.id, item.quantity - 1)}
+                    >
+                      <Ionicons name="remove" size={16} color="#22c55e" />
+                    </TouchableOpacity>
+                    <Text style={styles.qtyText}>{item.quantity}</Text>
+                    <TouchableOpacity
+                      style={styles.qtyBtn}
+                      onPress={() => updateQuantity(group.restaurantId, item.id, item.quantity + 1)}
+                    >
+                      <Ionicons name="add" size={16} color="#22c55e" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.itemPrice}>₹{(item.price * item.quantity).toFixed(2)}</Text>
+                </View>
               </View>
-            )}
-          </ScrollView>
+            ))
+          )}
+        </View>
 
-          {/* Global Cart Summary */}
-          {selectedRestaurants.size > 0 && (
-            <View style={styles.globalSummary}>
-              <Text style={styles.summaryTitle}>
-                {selectedRestaurants.size} restaurant{selectedRestaurants.size > 1 ? 's' : ''} selected
-              </Text>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total Amount:</Text>
-                <Text style={styles.summaryValue}>₹{getSelectedRestaurantsTotal().toFixed(2)}</Text>
+        {/* Add More Items */}
+        <TouchableOpacity style={styles.addMoreButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="add-circle-outline" size={20} color="#22c55e" />
+          <Text style={styles.addMoreText}>Add more items</Text>
+        </TouchableOpacity>
+
+        {/* Restaurant Note */}
+        <TouchableOpacity style={styles.noteSection}>
+          <Ionicons name="document-text-outline" size={20} color="#64748b" />
+          <TextInput
+            style={styles.noteInput}
+            placeholder="Add a note for the restaurant"
+            placeholderTextColor="#94a3b8"
+            value={restaurantNote}
+            onChangeText={setRestaurantNote}
+          />
+        </TouchableOpacity>
+
+        {/* Coupon Section */}
+        <View style={styles.couponSection}>
+          <View style={styles.couponHeader}>
+            <Ionicons name="pricetag" size={20} color="#22c55e" />
+            <Text style={styles.couponTitle}>Apply Coupon</Text>
+          </View>
+          <View style={styles.couponInputRow}>
+            <TextInput
+              style={styles.couponInput}
+              placeholder="Enter coupon code"
+              placeholderTextColor="#94a3b8"
+              value={couponCode}
+              onChangeText={setCouponCode}
+              autoCapitalize="characters"
+            />
+            <TouchableOpacity style={styles.applyButton} onPress={applyCoupon}>
+              <Text style={styles.applyButtonText}>APPLY</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.viewCouponsButton}>
+            <Text style={styles.viewCouponsText}>View all coupons</Text>
+            <Ionicons name="chevron-forward" size={16} color="#22c55e" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Delivery Info */}
+        <View style={styles.deliverySection}>
+          <View style={styles.deliveryRow}>
+            <Ionicons name="bicycle" size={20} color="#64748b" />
+            <View style={styles.deliveryInfo}>
+              <Text style={styles.deliveryLabel}>Delivery in {restaurantGroup?.deliveryTime || '20-25'} mins</Text>
+              <Text style={styles.deliverySubtext}>Want it later? Schedule it</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.deliveryRow}>
+            <Ionicons name="location" size={20} color="#22c55e" />
+            <View style={styles.deliveryInfo}>
+              <Text style={styles.deliveryLabel}>Delivery at Home</Text>
+              <Text style={styles.deliverySubtext} numberOfLines={1}>123 Main Street, Bangalore</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+          </View>
+        </View>
+
+        {/* Bill Details */}
+        <TouchableOpacity
+          style={styles.billSection}
+          onPress={() => setShowBillDetails(!showBillDetails)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.billHeader}>
+            <View style={styles.billHeaderLeft}>
+              <Ionicons name="receipt-outline" size={20} color="#64748b" />
+              <Text style={styles.billTitle}>Total Bill</Text>
+              <Text style={styles.billAmount}>₹{totals.total.toFixed(2)}</Text>
+            </View>
+            <Ionicons name={showBillDetails ? "chevron-up" : "chevron-down"} size={20} color="#64748b" />
+          </View>
+
+          {showBillDetails && (
+            <View style={styles.billDetails}>
+              <View style={styles.billRow}>
+                <Text style={styles.billLabel}>Item Total</Text>
+                <Text style={styles.billValue}>₹{totals.subtotal.toFixed(2)}</Text>
+              </View>
+              <View style={styles.billRow}>
+                <Text style={styles.billLabel}>Delivery Fee</Text>
+                <Text style={styles.billValue}>₹{totals.deliveryFee.toFixed(2)}</Text>
+              </View>
+              <View style={styles.billRow}>
+                <Text style={styles.billLabel}>GST & Taxes</Text>
+                <Text style={styles.billValue}>₹{totals.tax.toFixed(2)}</Text>
+              </View>
+              {totals.platformFee > 0 && (
+                <View style={styles.billRow}>
+                  <Text style={styles.billLabel}>Platform Fee</Text>
+                  <Text style={styles.billValue}>₹{totals.platformFee.toFixed(2)}</Text>
+                </View>
+              )}
+              {totals.discount > 0 && (
+                <View style={styles.billRow}>
+                  <Text style={[styles.billLabel, { color: '#22c55e' }]}>Discount</Text>
+                  <Text style={[styles.billValue, { color: '#22c55e' }]}>-₹{totals.discount.toFixed(2)}</Text>
+                </View>
+              )}
+              <View style={styles.billDivider} />
+              <View style={styles.billRow}>
+                <Text style={styles.billTotalLabel}>To Pay</Text>
+                <Text style={styles.billTotalValue}>₹{totals.total.toFixed(2)}</Text>
               </View>
             </View>
           )}
 
-          {/* Checkout Button */}
-          <View style={styles.checkoutContainer}>
-            <Button
-              title={`Checkout Selected (${selectedRestaurants.size}) • ₹${getSelectedRestaurantsTotal().toFixed(2)}`}
-              onPress={handleCheckout}
-              loading={loading}
-              style={styles.checkoutButton}
-              disabled={selectedRestaurants.size === 0}
-            />
-          </View>
-        </>
-      )}
+          {!showBillDetails && (
+            <Text style={styles.billSubtext}>Incl. taxes and charges</Text>
+          )}
+        </TouchableOpacity>
+
+        <View style={{ height: 120 }} />
+      </ScrollView>
+
+      {/* Bottom Checkout Bar */}
+      <View style={styles.checkoutBar}>
+        <View style={styles.checkoutInfo}>
+          <Text style={styles.checkoutTotal}>₹{totals.total.toFixed(2)}</Text>
+          <Text style={styles.checkoutSubtext}>{totalItems} item{totalItems > 1 ? 's' : ''}</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.checkoutButton, loading && styles.checkoutButtonDisabled]}
+          onPress={handleCheckout}
+          disabled={loading}
+        >
+          <Text style={styles.checkoutButtonText}>{loading ? 'Processing...' : 'Place Order'}</Text>
+          <Ionicons name="arrow-forward" size={20} color="#ffffff" />
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
@@ -559,12 +463,11 @@ const CartScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f8fafc',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#ffffff',
@@ -575,27 +478,363 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backButtonText: {
-    fontSize: 18,
-    color: '#64748b',
+  headerInfo: {
+    flex: 1,
+    marginLeft: 8,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#1e293b',
   },
-  clearButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  restaurantName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1e293b',
   },
-  clearButtonText: {
-    color: '#ef4444',
+  deliveryTime: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  savingsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  savingsText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#22c55e',
+  },
+  itemsSection: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    padding: 16,
+  },
+  cartItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  itemLeft: {
+    flexDirection: 'row',
+    flex: 1,
+    marginRight: 12,
+  },
+  vegIndicator: {
+    width: 16,
+    height: 16,
+    borderWidth: 1.5,
+    borderColor: '#22c55e',
+    borderRadius: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    marginTop: 2,
+  },
+  vegDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#22c55e',
+  },
+  itemInfo: {
+    flex: 1,
+  },
+  itemName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1e293b',
+    lineHeight: 20,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 2,
+  },
+  editText: {
+    fontSize: 12,
+    color: '#22c55e',
+    fontWeight: '500',
+  },
+  itemRight: {
+    alignItems: 'flex-end',
+  },
+  quantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+  },
+  qtyBtn: {
+    padding: 12,
+  },
+  qtyText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#22c55e',
+    minWidth: 24,
+    textAlign: 'center',
+  },
+  itemPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginTop: 8,
+  },
+  addMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  addMoreText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#22c55e',
+  },
+  noteSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    gap: 10,
+  },
+  noteInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1e293b',
+    padding: 0,
+  },
+  couponSection: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+  },
+  couponHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  couponTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  couponInputRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  couponInput: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  applyButton: {
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  applyButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  viewCouponsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  viewCouponsText: {
+    fontSize: 14,
+    color: '#22c55e',
+    fontWeight: '500',
+  },
+  deliverySection: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+  },
+  deliveryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  deliveryInfo: {
+    flex: 1,
+  },
+  deliveryLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1e293b',
+  },
+  deliverySubtext: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 12,
+  },
+  billSection: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+  },
+  billHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  billHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  billTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#64748b',
+  },
+  billAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  billSubtext: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 4,
+  },
+  billDetails: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  billRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  billLabel: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  billValue: {
+    fontSize: 14,
+    color: '#1e293b',
+  },
+  billDivider: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 10,
+  },
+  billTotalLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  billTotalValue: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  checkoutBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingBottom: 30,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  checkoutInfo: {
+    flex: 1,
+  },
+  checkoutTotal: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  checkoutSubtext: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  checkoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  checkoutButtonDisabled: {
+    backgroundColor: '#94a3b8',
+  },
+  checkoutButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   emptyContainer: {
     flex: 1,
@@ -603,371 +842,49 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+  emptyIconContainer: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   emptyTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#1e293b',
     marginBottom: 8,
-    textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
+    lineHeight: 22,
     marginBottom: 32,
   },
   browseButton: {
     backgroundColor: '#22c55e',
-    paddingHorizontal: 24,
-  },
-  cartList: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  cartItem: {
-    marginBottom: 12,
-    padding: 16,
-  },
-  itemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  itemImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  itemDetails: {
-    flex: 1,
-    padding: 0,
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  itemPrice: {
-    fontSize: 14,
-    color: '#22c55e',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  quantityButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quantityButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#64748b',
-  },
-  quantityText: {
-    marginHorizontal: 16,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    minWidth: 30,
-    textAlign: 'center',
-  },
-  removeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fee2e2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeButtonText: {
-    fontSize: 16,
-    color: '#ef4444',
-  },
-  cartSummary: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-  summaryValue: {
-    fontSize: 14,
-    color: '#1e293b',
-    fontWeight: '600',
-  },
-  totalRow: {
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    paddingTop: 12,
-    marginTop: 8,
-  },
-  totalLabel: {
-    fontSize: 16,
-    color: '#1e293b',
-    fontWeight: 'bold',
-  },
-  totalValue: {
-    fontSize: 16,
-    color: '#22c55e',
-    fontWeight: 'bold',
-  },
-  checkoutContainer: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    paddingBottom: 40, // Add extra padding to prevent cutoff
-  },
-  checkoutButton: {
-    backgroundColor: '#22c55e',
-  },
-  specialInstructionsContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-  },
-  instructionsInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    color: '#1e293b',
-    minHeight: 40,
-    textAlignVertical: 'top',
-    backgroundColor: '#ffffff',
-  },
-  frequentlyBought: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
     borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
-  sectionTitle: {
+  browseButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 12,
-  },
-  recommendationItem: {
-    width: 100,
-    marginRight: 12,
-    alignItems: 'center',
-  },
-  recommendationImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginBottom: 4,
-  },
-  recommendationName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#1e293b',
-    textAlign: 'center',
-    marginBottom: 2,
-  },
-  recommendationPrice: {
-    fontSize: 12,
-    color: '#22c55e',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  addRecommendationBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#22c55e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addRecommendationText: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
-  restaurantCountHeader: {
-    backgroundColor: '#e0f2fe',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  restaurantCountText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0369a1',
-    textAlign: 'center',
-  },
-  globalCouponSectionFixed: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  couponSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 12,
-  },
-  couponInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  couponInput: {
+  loadingContainer: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    padding: 12,
-    marginRight: 8,
-    fontSize: 14,
-  },
-  applyCouponButton: {
-    backgroundColor: '#22c55e',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  applyCouponText: {
-    color: '#ffffff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  appliedGlobalCoupon: {
-    fontSize: 14,
-    color: '#22c55e',
-    fontWeight: '600',
-  },
-  // Restaurant specific styles
-  restaurantSection: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  restaurantHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f8fafc',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 2,
-    borderColor: '#cbd5e1',
-    borderRadius: 4,
-    marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 16,
   },
-  checkboxSelected: {
-    backgroundColor: '#22c55e',
-    borderColor: '#22c55e',
-  },
-  checkboxText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  restaurantInfo: {
-    flex: 1,
-  },
-  restaurantName: {
+  loadingText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  boldText: {
-    fontWeight: 'bold',
-  },
-  deliveryInfo: {
-    fontSize: 12,
     color: '#64748b',
-  },
-  clearText: {
-    fontSize: 14,
-    color: '#ef4444',
-    fontWeight: '600',
-  },
-  itemsContainer: {
-    padding: 16,
-  },
-  restaurantSummary: {
-    backgroundColor: '#f8fafc',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  summaryTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 12,
-  },
-  globalSummary: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  specialInstructionsText: {
-    fontSize: 12,
-    color: '#f59e0b',
-    fontStyle: 'italic',
-    marginTop: 4,
-  },
-  discountText: {
-    color: '#22c55e',
+    fontWeight: '500',
   },
 });
 
