@@ -1,13 +1,12 @@
 // Checkout Service
-// APIs for checkout calculation, session management, and order creation
+// APIs for checkout calculation and session management
+// Note: Order creation is handled by orderService.createOrder() per OpenAPI spec
 
 import apiClient from './apiClient';
 import { ENDPOINTS } from './config';
 import {
     CheckoutRequest,
     CheckoutResponse,
-    CommitCheckoutRequest,
-    OrderDetailsResponse,
 } from './types';
 
 class CheckoutService {
@@ -30,14 +29,6 @@ class CheckoutService {
     }
 
     /**
-     * Commit checkout - converts session to an order
-     * This is step 2 of the two-step checkout process
-     */
-    async commitCheckout(request: CommitCheckoutRequest): Promise<OrderDetailsResponse> {
-        return apiClient.post<OrderDetailsResponse>(ENDPOINTS.CHECKOUT_COMMIT, request);
-    }
-
-    /**
      * Get existing checkout session by ID
      */
     async getCheckoutSession(sessionId: string): Promise<CheckoutResponse> {
@@ -50,8 +41,13 @@ class CheckoutService {
     async healthCheck(): Promise<string> {
         return apiClient.get<string>(ENDPOINTS.CHECKOUT_HEALTH);
     }
+
+    /**
+     * @deprecated Use orderService.createOrder() instead
+     * Order creation now uses POST /api/v1/orders endpoint
+     */
+    // commitCheckout is removed - use orderService.createOrder() instead
 }
 
 export const checkoutService = new CheckoutService();
 export default checkoutService;
-

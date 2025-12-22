@@ -5,32 +5,25 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Card, CardContent } from '../components/Card';
 import api from '../services/api';
 import orderService from '../services/orderService';
+import { razorpayService } from '../services/razorpayService';
 
 const PaymentScreen = ({ navigation, route }) => {
   const { cart, checkoutResponse } = route.params || {};
   const [cartItems, setCartItems] = useState(cart || []);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('upi');
-  const [cardDetails, setCardDetails] = useState({
-    number: '',
-    expiry: '',
-    cvv: '',
-    name: '',
-  });
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('razorpay');
   const [deliveryAddress, setDeliveryAddress] = useState('Home - 123 Main Street, Mumbai');
   const [loading, setLoading] = useState(false);
 
   const paymentMethods = [
-    { id: 'upi', name: 'UPI', icon: 'phone-portrait-outline' },
-    { id: 'wallet', name: 'Digital Wallet', icon: 'wallet-outline' },
+    { id: 'razorpay', name: 'Pay Online (UPI, Cards, Wallets)', icon: 'card-outline' },
     { id: 'cod', name: 'Cash on Delivery', icon: 'cash-outline' },
   ];
 
@@ -70,7 +63,7 @@ const PaymentScreen = ({ navigation, route }) => {
   const getPlatformFee = () => checkoutResponse?.pricing?.platformFee ?? 0;
   const getGrandTotal = () => checkoutResponse?.pricing?.totalAmount ?? (getTotalPrice() + getDeliveryFee() + getGST());
 
-  const handlePayment = async () => {
+  const handleRazorpayPayment = async () => {
     if (!checkoutResponse?.checkoutSessionId) {
       Alert.alert('Error', 'No valid checkout session. Please go back and try again.');
       return;
@@ -79,11 +72,61 @@ const PaymentScreen = ({ navigation, route }) => {
     setLoading(true);
 
     try {
-      console.log('[PaymentScreen] Creating order with sessionId:', checkoutResponse.checkoutSessionId);
+      const totalAmount = getGrandTotal();
+      console.log('[PaymentScreen] Initiating Razorpay payment for amount:', totalAmount);
+
+      // Get customer info from checkout response
+      const customerInfo = {
+        name: 'Customer', // In production, get from user profile
+        email: 'customer@example.com',
+        phone: '+919876543210',
+      };
+
+      // Initiate Razorpay Checkout
+      const paymentResult = await razorpayService.initiatePayment(
+        totalAmount,
+        checkoutResponse.checkoutSessionId,
+        customerInfo
+      );
+
+      console.log('[PaymentScreen] Payment result:', paymentResult);
+
+      if (paymentResult.success && paymentResult.paymentId) {
+        // Payment successful - create order
+        // TODO: Remove hardcoded token after testing - using tok_gpay_1234 for backend testing
+        await createOrderAfterPayment('tok_gpay_1234'); // paymentResult.paymentId
+      } else if (paymentResult.error) {
+        // Payment failed
+        if (razorpayService.isUserCancelled(paymentResult.error)) {
+          // User cancelled - don't show error
+          console.log('[PaymentScreen] User cancelled payment');
+        } else {
+          Alert.alert(
+            'Payment Failed',
+            razorpayService.getErrorMessage(paymentResult.error),
+            [{ text: 'Try Again', onPress: () => setLoading(false) }]
+          );
+        }
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('[PaymentScreen] Payment error:', error);
+      Alert.alert('Error', error?.message || 'Payment failed. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  const createOrderAfterPayment = async (paymentId) => {
+    try {
+      console.log('[PaymentScreen] Creating order with payment ID:', paymentId);
+      console.log('[PaymentScreen] Checkout session ID:', checkoutResponse?.checkoutSessionId);
+      // Debug: Log customer ID being sent
+      const apiClient = require('../services/apiClient').default;
+      console.log('[PaymentScreen] Customer ID in apiClient:', apiClient.getCustomerId());
 
       const orderRequest = {
         checkoutSessionId: checkoutResponse.checkoutSessionId,
-        paymentToken: 'tok_gpay_1234',
+        paymentToken: paymentId, // Use Razorpay payment ID as token
       };
 
       console.log('[PaymentScreen] Order request:', JSON.stringify(orderRequest, null, 2));
@@ -91,25 +134,121 @@ const PaymentScreen = ({ navigation, route }) => {
       console.log('[PaymentScreen] Order response:', JSON.stringify(orderResponse, null, 2));
 
       if (orderResponse?.orderId) {
-        Alert.alert(
-          'Payment Successful!',
-          `Your order has been placed.\nOrder ID: ${orderResponse.orderId}`,
-          [
-            { text: 'View Orders', onPress: () => navigation.navigate('Orders') },
-            { text: 'Back to Home', onPress: () => navigation.navigate('Home'), style: 'cancel' },
-          ]
-        );
+        // Clear cart after successful order
+        await api.clearCart();
+
+        // Navigate directly to Tracking screen without dialog
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: 'Home' },
+            {
+              name: 'Tracking',
+              params: {
+                order: {
+                  id: orderResponse.orderId,
+                  vendorName: checkoutResponse.vendorName || 'Restaurant',
+                  status: 'confirmed',
+                  total: getGrandTotal(),
+                  _original: orderResponse,
+                },
+                isNewOrder: true,
+              },
+            },
+          ],
+        });
       } else {
-        Alert.alert('Order Created', 'Your order is being processed.');
-        navigation.navigate('Orders');
+        // Fallback - navigate to Orders if no orderId
+        navigation.reset({
+          index: 1,
+          routes: [{ name: 'Home' }, { name: 'Orders' }],
+        });
       }
     } catch (error) {
-      console.error('[PaymentScreen] Error:', error);
-      Alert.alert('Error', error?.message || 'Failed to create order.');
+      console.error('[PaymentScreen] Order creation error:', error);
+      console.error('[PaymentScreen] Error details:', {
+        message: error?.message,
+        status: error?.status,
+        details: error?.details,
+        stack: error?.stack,
+      });
+
+      // Show more detailed error message for debugging
+      const errorMessage = error?.details?.message || error?.message || 'Unknown error';
+      const errorStatus = error?.status || 'N/A';
+
+      Alert.alert(
+        'Order Error',
+        `Payment was successful but order creation failed.\n\nError: ${errorMessage}\nStatus: ${errorStatus}\n\nPlease contact support.`,
+        [{
+          text: 'OK', onPress: () => navigation.reset({
+            index: 0,
+            routes: [{ name: 'Home' }],
+          })
+        }]
+      );
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCODPayment = async () => {
+    if (!checkoutResponse?.checkoutSessionId) {
+      Alert.alert('Error', 'No valid checkout session. Please go back and try again.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const orderRequest = {
+        checkoutSessionId: checkoutResponse.checkoutSessionId,
+        paymentToken: 'COD', // Cash on Delivery
+      };
+
+      const orderResponse = await orderService.createOrder(orderRequest);
+
+      if (orderResponse?.orderId) {
+        await api.clearCart();
+
+        // Navigate directly to Tracking screen without dialog
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: 'Home' },
+            {
+              name: 'Tracking',
+              params: {
+                order: {
+                  id: orderResponse.orderId,
+                  vendorName: checkoutResponse.vendorName || 'Restaurant',
+                  status: 'confirmed',
+                  total: getGrandTotal(),
+                  paymentMethod: 'COD',
+                  _original: orderResponse,
+                },
+                isNewOrder: true,
+              },
+            },
+          ],
+        });
+      }
+    } catch (error) {
+      console.error('[PaymentScreen] COD order error:', error);
+      Alert.alert('Error', error?.message || 'Failed to place order.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePayment = () => {
+    if (selectedPaymentMethod === 'razorpay') {
+      handleRazorpayPayment();
+    } else if (selectedPaymentMethod === 'cod') {
+      handleCODPayment();
+    }
+  };
+
 
   const renderPaymentMethod = (method) => (
     <TouchableOpacity
@@ -141,17 +280,9 @@ const PaymentScreen = ({ navigation, route }) => {
     </TouchableOpacity>
   );
 
-  const renderUPIForm = () => (
-    <View style={styles.upiForm}>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter UPI ID (e.g., user@paytm)"
-        value={cardDetails.number}
-        onChangeText={(text) => setCardDetails({ ...cardDetails, number: text })}
-        placeholderTextColor="#64748b"
-      />
-    </View>
-  );
+  // Note: Razorpay SDK handles all payment UI (UPI, cards, wallets, etc.)
+  // No custom payment form needed
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -238,8 +369,15 @@ const PaymentScreen = ({ navigation, route }) => {
           <Text style={styles.sectionTitle}>Payment Method</Text>
           {paymentMethods.map(renderPaymentMethod)}
 
-          {/* Payment Forms */}
-          {selectedPaymentMethod === 'upi' && renderUPIForm()}
+          {/* Razorpay info for online payments */}
+          {selectedPaymentMethod === 'razorpay' && (
+            <View style={styles.razorpayInfo}>
+              <Ionicons name="shield-checkmark" size={16} color="#22c55e" />
+              <Text style={styles.razorpayInfoText}>
+                Secure payments via Razorpay (UPI, Cards, Net Banking, Wallets)
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.bottomPadding} />
@@ -416,7 +554,7 @@ const styles = StyleSheet.create({
     color: '#1e293b',
   },
   selectedMethodText: {
-    color: '#16a34a',
+    color: '#22c55e',
     fontWeight: '600',
   },
   radioButton: {
@@ -463,6 +601,20 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20,
+  },
+  razorpayInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    gap: 8,
+  },
+  razorpayInfoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#166534',
   },
 });
 

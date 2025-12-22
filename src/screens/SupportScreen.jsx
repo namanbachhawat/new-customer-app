@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   selectedCategoryText: {
-    color: '#16a34a',
+    color: '#22c55e',
   },
   subjectInput: {
     backgroundColor: '#ffffff',

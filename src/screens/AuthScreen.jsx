@@ -1,11 +1,12 @@
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
+// Firebase Phone Auth using @react-native-firebase/auth
+import auth from '@react-native-firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,27 +23,10 @@ import { apiClient } from '../services/apiClient';
 
 const { width } = Dimensions.get('window');
 
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyCLJ85pNNUlPNjQr2xOiRQTLS7lzZxfGvY",
-  authDomain: "customerapp-6a548.firebaseapp.com",
-  projectId: "customerapp-6a548",
-  storageBucket: "customerapp-6a548.firebasestorage.app",
-  messagingSenderId: "323844165106",
-  appId: "1:323844165106:web:2d7dab93b49a9e9318ef6b",
-  measurementId: "G-9MEZ2M17ZP"
-};
-
-// Initialize Firebase
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
-
 const AuthScreen = ({ navigation }) => {
-  const recaptchaVerifier = useRef(null);
   const [activeTab, setActiveTab] = useState('login');
   const [authStep, setAuthStep] = useState('phone'); // 'phone' or 'otp'
-  const [verificationId, setVerificationId] = useState(null);
+  const [confirm, setConfirm] = useState(null); // Firebase confirmation result
   const [formData, setFormData] = useState({
     phone: '',
     otp: '',
@@ -123,7 +107,7 @@ const AuthScreen = ({ navigation }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Send OTP using Firebase
+  // Send OTP using @react-native-firebase/auth
   const handleSendOTP = async () => {
     if (!validateLogin()) return;
 
@@ -132,20 +116,26 @@ const AuthScreen = ({ navigation }) => {
       const phoneNumber = `+91${formData.phone}`;
       console.log('[AuthScreen] Sending OTP to:', phoneNumber);
 
-      const phoneProvider = new firebase.auth.PhoneAuthProvider();
-      const verificationId = await phoneProvider.verifyPhoneNumber(
-        phoneNumber,
-        recaptchaVerifier.current
-      );
+      // Sign in with phone number - Firebase handles reCAPTCHA automatically
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
 
-      console.log('[AuthScreen] Verification ID received:', verificationId);
-      setVerificationId(verificationId);
+      console.log('[AuthScreen] OTP sent successfully');
+      setConfirm(confirmation);
       setAuthStep('otp');
       setCountdown(60);
-      Alert.alert('OTP Sent', `A verification code has been sent to ${phoneNumber}`);
     } catch (error) {
       console.error('[AuthScreen] Error sending OTP:', error);
-      Alert.alert('Error', error.message || 'Failed to send OTP. Please try again.');
+
+      let errorMessage = 'Failed to send OTP. Please try again.';
+      if (error.code === 'auth/invalid-phone-number') {
+        errorMessage = 'Invalid phone number format.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many requests. Please try again later.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your connection.';
+      }
+
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -154,17 +144,17 @@ const AuthScreen = ({ navigation }) => {
   // Verify OTP using Firebase
   const handleVerifyOTP = async () => {
     if (!validateOTP()) return;
+    if (!confirm) {
+      Alert.alert('Error', 'Please request OTP first.');
+      return;
+    }
 
     setLoading(true);
     try {
       console.log('[AuthScreen] Verifying OTP...');
 
-      const credential = firebase.auth.PhoneAuthProvider.credential(
-        verificationId,
-        formData.otp
-      );
-
-      const userCredential = await firebase.auth().signInWithCredential(credential);
+      // Confirm the OTP code
+      const userCredential = await confirm.confirm(formData.otp);
       console.log('[AuthScreen] User signed in:', userCredential.user.uid);
 
       // Set the customer ID for all API calls
@@ -173,17 +163,24 @@ const AuthScreen = ({ navigation }) => {
       apiClient.setCustomerId(customerUUID);
       console.log('[AuthScreen] Customer ID set for API calls:', customerUUID);
 
-      navigation.navigate('Home');
+      // Reset navigation stack so Home is the new root (no back to Auth)
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      });
     } catch (error) {
       console.error('[AuthScreen] Error verifying OTP:', error);
 
+      let errorMessage = 'Failed to verify OTP.';
       if (error.code === 'auth/invalid-verification-code') {
-        Alert.alert('Error', 'Invalid OTP code. Please check and try again.');
+        errorMessage = 'Invalid OTP code. Please check and try again.';
       } else if (error.code === 'auth/code-expired') {
-        Alert.alert('Error', 'OTP has expired. Please request a new one.');
-      } else {
-        Alert.alert('Error', error.message || 'Failed to verify OTP.');
+        errorMessage = 'OTP has expired. Please request a new one.';
+      } else if (error.code === 'auth/session-expired') {
+        errorMessage = 'Session expired. Please request a new OTP.';
       }
+
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -199,7 +196,6 @@ const AuthScreen = ({ navigation }) => {
   const handleBackToPhone = () => {
     setAuthStep('phone');
     setFormData(prev => ({ ...prev, otp: '' }));
-    setVerificationId(null);
     setErrors({});
   };
 
@@ -214,14 +210,22 @@ const AuthScreen = ({ navigation }) => {
     const guestId = '123e4567-e89b-12d3-a456-426614174000';
     apiClient.setCustomerId(guestId);
     console.log('[AuthScreen] Guest login - Customer ID set:', guestId);
-    navigation.navigate('Home');
+    // Reset navigation stack so Home is the new root
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Home' }],
+    });
   };
 
   const handleSocialLogin = async (provider) => {
     try {
       const response = await api.socialLogin(provider);
       if (response.success) {
-        navigation.navigate('Home');
+        // Reset navigation stack so Home is the new root
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Home' }],
+        });
       } else {
         Alert.alert('Error', 'Social login failed. Please try again.');
       }
@@ -246,12 +250,14 @@ const AuthScreen = ({ navigation }) => {
       <View style={styles.otpInputContainer}>
         <TextInput
           style={styles.otpInput}
-          placeholder="Enter 6-digit OTP"
+          placeholder="_ _ _ _ _ _"
           value={formData.otp}
           onChangeText={(text) => handleInputChange('otp', text.replace(/\D/g, '').slice(0, 6))}
           keyboardType="number-pad"
           maxLength={6}
           placeholderTextColor="#94a3b8"
+          accessibilityLabel="Verification code"
+          accessibilityHint="Enter the 6 digit code sent to your phone"
         />
       </View>
       {errors.otp && <Text style={styles.errorText}>{errors.otp}</Text>}
@@ -261,6 +267,8 @@ const AuthScreen = ({ navigation }) => {
         onPress={handleVerifyOTP}
         disabled={loading}
         style={styles.primaryButton}
+        accessibilityLabel="Verify O T P"
+        accessibilityHint="Verify the code and sign in"
       />
 
       <View style={styles.resendContainer}>
@@ -272,6 +280,9 @@ const AuthScreen = ({ navigation }) => {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Extra padding for keyboard */}
+      <View style={{ height: 80 }} />
     </View>
   );
 
@@ -282,153 +293,139 @@ const AuthScreen = ({ navigation }) => {
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      {/* Firebase reCAPTCHA Verifier Modal */}
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaVerifier}
-        firebaseConfig={firebaseConfig}
-        attemptInvisibleVerification={true}
-      />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          style={styles.scrollContainer}
+          contentContainerStyle={styles.contentContainer}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header with Logo Area */}
+          <Animated.View entering={FadeInDown.duration(600).delay(100)} style={styles.header}>
+            <View style={styles.logoContainer}>
+              <LinearGradient
+                colors={['#22c55e', '#1db954']}
+                style={styles.logoGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Text style={styles.logoText}>N</Text>
+              </LinearGradient>
+            </View>
+            <Text style={styles.welcomeTitle}>Welcome to Nashtto</Text>
+            <Text style={styles.welcomeSubtitle}>
+              Pure vegetarian food delivered fresh to your doorstep
+            </Text>
+          </Animated.View>
 
-      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-        {/* Header with Logo Area */}
-        <Animated.View entering={FadeInDown.duration(600).delay(100)} style={styles.header}>
-          <View style={styles.logoContainer}>
-            <LinearGradient
-              colors={['#22c55e', '#16a34a']}
-              style={styles.logoGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Text style={styles.logoText}>🥗</Text>
-            </LinearGradient>
-          </View>
-          <Text style={styles.welcomeTitle}>Welcome to Nashtto</Text>
-          <Text style={styles.welcomeSubtitle}>
-            Pure vegetarian food delivered fresh to your doorstep
-          </Text>
-        </Animated.View>
+          {/* Auth Card */}
+          <Animated.View entering={FadeInUp.duration(600).delay(300)} style={styles.authCard}>
+            {/* Tab Navigation */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'login' && styles.activeTab]}
+                onPress={() => { setActiveTab('login'); setAuthStep('phone'); setFormData(prev => ({ ...prev, otp: '' })); }}
+              >
+                <Text style={[styles.tabText, activeTab === 'login' && styles.activeTabText]}>Sign In</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'register' && styles.activeTab]}
+                onPress={() => { setActiveTab('register'); setAuthStep('phone'); }}
+              >
+                <Text style={[styles.tabText, activeTab === 'register' && styles.activeTabText]}>Sign Up</Text>
+              </TouchableOpacity>
+            </View>
 
-        {/* Auth Card */}
-        <Animated.View entering={FadeInUp.duration(600).delay(300)} style={styles.authCard}>
-          {/* Tab Navigation */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'login' && styles.activeTab]}
-              onPress={() => { setActiveTab('login'); setAuthStep('phone'); setFormData(prev => ({ ...prev, otp: '' })); }}
-            >
-              <Text style={[styles.tabText, activeTab === 'login' && styles.activeTabText]}>Sign In</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'register' && styles.activeTab]}
-              onPress={() => { setActiveTab('register'); setAuthStep('phone'); }}
-            >
-              <Text style={[styles.tabText, activeTab === 'register' && styles.activeTabText]}>Sign Up</Text>
-            </TouchableOpacity>
-          </View>
+            {/* Login Form */}
+            {activeTab === 'login' && (
+              authStep === 'otp' ? renderOTPVerification() : (
+                <View style={styles.formContainer}>
+                  <Input
+                    placeholder="Enter your 10-digit mobile number"
+                    value={formData.phone}
+                    onChangeText={(text) => handleInputChange('phone', text.replace(/\D/g, '').slice(0, 10))}
+                    keyboardType="phone-pad"
+                    error={errors.phone}
+                    maxLength={10}
+                    accessibilityLabel="Phone number"
+                    accessibilityHint="Enter your 10 digit mobile number to receive OTP"
+                  />
 
-          {/* Login Form */}
-          {activeTab === 'login' && (
-            authStep === 'otp' ? renderOTPVerification() : (
-              <View style={styles.formContainer}>
-                <Input
-                  placeholder="Enter your 10-digit mobile number"
-                  value={formData.phone}
-                  onChangeText={(text) => handleInputChange('phone', text.replace(/\D/g, '').slice(0, 10))}
-                  keyboardType="phone-pad"
-                  error={errors.phone}
-                  maxLength={10}
-                />
+                  <GradientButton
+                    title={loading ? "Sending OTP..." : "Send OTP"}
+                    onPress={handleSendOTP}
+                    disabled={loading}
+                    style={styles.primaryButton}
+                    accessibilityLabel="Send O T P"
+                    accessibilityHint="Sends a verification code to your phone"
+                  />
 
-                <GradientButton
-                  title={loading ? "Sending OTP..." : "Send OTP"}
-                  onPress={handleSendOTP}
-                  disabled={loading}
-                  style={styles.primaryButton}
-                />
+                  <Button
+                    title="Continue as Guest"
+                    onPress={handleGuestLogin}
+                    variant="outline"
+                    style={styles.secondaryButton}
+                  />
 
-                <Button
-                  title="Continue as Guest"
-                  onPress={handleGuestLogin}
-                  variant="outline"
-                  style={styles.secondaryButton}
-                />
-
-                <View style={styles.divider}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>or</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                <View style={styles.socialContainer}>
-                  <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('google')}>
-                    <Text style={styles.googleIcon}>G</Text>
-                    <Text style={styles.socialButtonText}>Google</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('facebook')}>
-                    <Text style={styles.facebookIcon}>f</Text>
-                    <Text style={styles.socialButtonText}>Facebook</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )
-          )}
-
-          {/* Register Form */}
-          {activeTab === 'register' && (
-            authStep === 'otp' ? renderOTPVerification() : (
-              <View style={styles.formContainer}>
-                <Input placeholder="Enter your full name" value={formData.name} onChangeText={(text) => handleInputChange('name', text)} error={errors.name} />
-                <Input placeholder="Enter your phone number" value={formData.phone} onChangeText={(text) => handleInputChange('phone', text.replace(/\D/g, '').slice(0, 10))} keyboardType="phone-pad" error={errors.phone} maxLength={10} />
-                <Input placeholder="Enter your email (optional)" value={formData.email} onChangeText={(text) => handleInputChange('email', text)} keyboardType="email-address" error={errors.email} />
-
-                <TouchableOpacity style={styles.termsContainer} onPress={() => handleInputChange('acceptTerms', !formData.acceptTerms)}>
-                  <View style={[styles.checkbox, formData.acceptTerms && styles.checkboxChecked]}>
-                    {formData.acceptTerms && <Text style={styles.checkmark}>✓</Text>}
+                  <View style={styles.divider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
                   </View>
-                  <Text style={styles.termsText}>I agree to Nashtto's Terms of Service and Privacy Policy</Text>
-                </TouchableOpacity>
-                {errors.acceptTerms && <Text style={styles.errorText}>{errors.acceptTerms}</Text>}
 
-                <GradientButton
-                  title={loading ? "Sending OTP..." : "Sign Up with OTP"}
-                  onPress={handleRegister}
-                  disabled={loading}
-                  style={styles.primaryButton}
-                />
-
-                <View style={styles.loginLink}>
-                  <Text style={styles.loginLinkText}>Already have an account? </Text>
-                  <TouchableOpacity onPress={() => setActiveTab('login')}>
-                    <Text style={styles.loginLinkButton}>Sign in here</Text>
-                  </TouchableOpacity>
+                  <View style={styles.socialContainer}>
+                    <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('google')}>
+                      <Text style={styles.googleIcon}>G</Text>
+                      <Text style={styles.socialButtonText}>Google</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('facebook')}>
+                      <Text style={styles.facebookIcon}>f</Text>
+                      <Text style={styles.socialButtonText}>Facebook</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            )
-          )}
-        </Animated.View>
+              )
+            )}
 
-        {/* Additional Info */}
-        <Animated.View entering={FadeInUp.duration(600).delay(500)} style={styles.infoContainer}>
-          <View style={styles.infoItem}>
-            <View style={styles.infoIconContainer}>
-              <Text style={styles.infoIcon}>🌿</Text>
-            </View>
-            <Text style={styles.infoText}>100% Vegetarian</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <View style={styles.infoIconContainer}>
-              <Text style={styles.infoIcon}>✨</Text>
-            </View>
-            <Text style={styles.infoText}>Fresh & Healthy</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <View style={styles.infoIconContainer}>
-              <Text style={styles.infoIcon}>🚀</Text>
-            </View>
-            <Text style={styles.infoText}>Fast Delivery</Text>
-          </View>
-        </Animated.View>
-      </ScrollView>
+            {/* Register Form */}
+            {activeTab === 'register' && (
+              authStep === 'otp' ? renderOTPVerification() : (
+                <View style={styles.formContainer}>
+                  <Input placeholder="Enter your full name" value={formData.name} onChangeText={(text) => handleInputChange('name', text)} error={errors.name} />
+                  <Input placeholder="Enter your phone number" value={formData.phone} onChangeText={(text) => handleInputChange('phone', text.replace(/\D/g, '').slice(0, 10))} keyboardType="phone-pad" error={errors.phone} maxLength={10} />
+                  <Input placeholder="Enter your email (optional)" value={formData.email} onChangeText={(text) => handleInputChange('email', text)} keyboardType="email-address" error={errors.email} />
+
+                  <TouchableOpacity style={styles.termsContainer} onPress={() => handleInputChange('acceptTerms', !formData.acceptTerms)}>
+                    <View style={[styles.checkbox, formData.acceptTerms && styles.checkboxChecked]}>
+                      {formData.acceptTerms && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                    <Text style={styles.termsText}>I agree to Nashtto's Terms of Service and Privacy Policy</Text>
+                  </TouchableOpacity>
+                  {errors.acceptTerms && <Text style={styles.errorText}>{errors.acceptTerms}</Text>}
+
+                  <GradientButton
+                    title={loading ? "Sending OTP..." : "Sign Up with OTP"}
+                    onPress={handleRegister}
+                    disabled={loading}
+                    style={styles.primaryButton}
+                  />
+
+                  <View style={styles.loginLink}>
+                    <Text style={styles.loginLinkText}>Already have an account? </Text>
+                    <TouchableOpacity onPress={() => setActiveTab('login')}>
+                      <Text style={styles.loginLinkButton}>Sign in here</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )
+            )}
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </LinearGradient>
   );
 };
@@ -440,10 +437,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollContainer: {
+    flex: 1,
+  },
   contentContainer: {
     padding: 20,
-    justifyContent: 'center',
-    minHeight: '100%',
+    paddingBottom: 40,
   },
   header: {
     alignItems: 'center',
@@ -465,7 +464,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   logoText: {
-    fontSize: 40,
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
   welcomeTitle: {
     fontSize: 32,
@@ -652,6 +653,11 @@ const styles = StyleSheet.create({
   infoIcon: {
     fontSize: 24,
   },
+  infoIconText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#22c55e',
+  },
   infoText: {
     color: '#1e293b',
     fontSize: 12,
@@ -696,7 +702,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
-    letterSpacing: 8,
+    letterSpacing: 12,
     color: '#1e293b',
   },
   resendContainer: {
